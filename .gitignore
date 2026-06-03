@@ -1,0 +1,5 @@
+the-harness/node_modules/
+the-harness/.env
+the-harness/sessions/
+the-harness/logs/
+.DS_Store

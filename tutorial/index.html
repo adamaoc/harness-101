@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Building Your First Agentic Coding Harness in TypeScript</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+  </head>
+  <body class="bg-slate-50 text-slate-800">
+    <header class="site-header">
+      <div class="site-header__inner max-w-screen-xl mx-auto">
+        <a href="index.html" class="site-header__brand">
+          <div>
+            <h1 class="site-header__title heading-font">Agent Harness</h1>
+            <p class="site-header__subtitle">TypeScript Edition</p>
+          </div>
+        </a>
+        <div class="site-header__actions">
+          <span class="site-header__badge">Intro • Phase 00</span>
+          <a href="phase-1.html" class="site-header__cta">Start Building</a>
+        </div>
+      </div>
+    </header>
+
+    <div class="max-w-screen-xl mx-auto px-6 pt-10 pb-20">
+      <div class="max-w-3xl mb-16">
+        <h2
+          class="text-5xl md:text-6xl font-semibold tracking-tighter heading-font leading-none mb-6"
+        >
+          Build Your First<br />Agentic Coding Harness<br />in TypeScript
+        </h2>
+        <p class="text-xl md:text-2xl text-slate-600 leading-tight">
+          Type every line yourself — and use the
+          <strong>explanation sidebar</strong> beside each snippet to learn what
+          it does and why it exists.
+        </p>
+        <p class="text-lg text-slate-600 mt-6 leading-relaxed">
+          <strong>Harness 101</strong> is a beginner-friendly walkthrough for
+          developers who want to understand agentic coding systems from the
+          ground up — not just use a black-box tool. By the end you will have
+          typed a real harness in TypeScript, wired to Grok (xAI), that runs in
+          your terminal and can work on your codebase.
+        </p>
+      </div>
+
+      <div class="prose-custom max-w-3xl mb-16">
+        <h3 class="font-semibold text-2xl mb-4">About this project</h3>
+        <p>
+          Most guides explain agents at a high level: “give the model tools and
+          let it loop.” That is true, but it skips the part that actually
+          matters —
+          <strong>how you wire memory, tools, permissions, and logging</strong>
+          so the system stays predictable.
+        </p>
+        <p class="mt-4">
+          This tutorial is the lesson. You create your own project folder (we
+          use
+          <code>my-ts-agent</code> in the examples) and add one file at a time
+          starting with Phase 00 on this page, then Phases 01–08 in their own
+          files. The repo also includes a finished reference copy in
+          <code>the-harness/</code> if you want to compare or run something
+          working while you learn — but the goal is that <em>you</em> build it.
+        </p>
+        <p class="mt-4">
+          No web app, no framework magic — just Node, TypeScript, the OpenAI SDK
+          pointed at xAI’s API, and a REPL-style loop you control. When
+          something breaks, you will know which file to open.
+        </p>
+      </div>
+
+      <div id="what-youll-build" class="mb-16">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-white border border-slate-200 rounded-3xl p-6">
+            <div class="text-blue-600 mb-3">📦</div>
+            <div class="font-semibold text-xl mb-1.5">
+              Complete Working Harness
+            </div>
+            <p class="text-slate-600 text-sm">
+              A fully functional TypeScript agent that can explore code,
+              read/write files, and run multi-step tasks using Grok.
+            </p>
+          </div>
+          <div class="bg-white border border-slate-200 rounded-3xl p-6">
+            <div class="text-blue-600 mb-3">🧠</div>
+            <div class="font-semibold text-xl mb-1.5">
+              Line-by-Line Understanding
+            </div>
+            <p class="text-slate-600 text-sm">
+              Every code block has a collapsible sidebar — expand a section to
+              see what those lines do before you move on.
+            </p>
+          </div>
+          <div class="bg-white border border-slate-200 rounded-3xl p-6">
+            <div class="text-blue-600 mb-3">🚀</div>
+            <div class="font-semibold text-xl mb-1.5">Ready to Extend</div>
+            <p class="text-slate-600 text-sm">
+              By the end you'll have a solid foundation to add planning,
+              sub-agents, better safety, and more.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-16 max-w-3xl">
+        <h3 class="font-semibold text-2xl mb-4">
+          Full feature set (when you finish all phases)
+        </h3>
+        <p class="text-slate-600 mb-6">
+          Early phases build the core loop; later phases add the patterns you
+          see in serious coding agents. When you are done, your harness
+          includes:
+        </p>
+        <ul class="space-y-2 text-slate-700 list-disc pl-5">
+          <li>
+            <strong>Durable sessions</strong> — conversation history saved as
+            JSONL on disk; survives restarts
+          </li>
+          <li>
+            <strong>Grok client</strong> — thin wrapper around the OpenAI SDK at
+            <code>api.x.ai</code>
+          </li>
+          <li>
+            <strong>Filesystem tools</strong> — <code>list_files</code>,
+            <code>read_file</code>, <code>write_file</code> (workspace sandboxed
+            to your project root)
+          </li>
+          <li>
+            <strong>Agent loop</strong> — model → tool calls → tool results →
+            repeat until the turn finishes (up to 25 steps per prompt)
+          </li>
+          <li>
+            <strong>Turn snapshots</strong> — hidden system records per loop
+            step for debugging what the harness knew at each moment
+          </li>
+          <li>
+            <strong>Three profiles</strong> — Planner, Implementer, and Reviewer
+            with separate prompts and tool allow-lists
+          </li>
+          <li>
+            <strong>Structured logging</strong> — harness events in
+            <code>logs/*.jsonl</code> (tokens, tools, errors, compaction)
+          </li>
+          <li>
+            <strong>Diffs on write</strong> — unified diff in every
+            <code>write_file</code> result so you see what changed
+          </li>
+          <li>
+            <strong>Context compaction</strong> — summarize and hide older
+            messages when the thread gets long
+          </li>
+          <li>
+            <strong>Sub-agents</strong> — <code>delegate</code> spawns a
+            short-lived planner or reviewer in a child session
+          </li>
+          <li>
+            <strong>Terminal CLI</strong> — interactive prompts; empty line to
+            quit
+          </li>
+        </ul>
+        <p class="text-sm text-slate-500 mt-6">
+          Phase 08 also points at sensible next steps (approval flows, tests,
+          git checkpoints, and more) without cramming everything into one
+          lesson.
+        </p>
+      </div>
+
+      <div class="mb-12">
+        <h3 class="font-semibold text-xl mb-4 px-1">Table of Contents</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+          <a
+            href="#phase-0"
+            class="toc-link flex items-center gap-x-3 px-4 py-2 hover:bg-white rounded-2xl group"
+            ><span
+              class="font-mono text-xs w-6 text-slate-400 group-hover:text-blue-500"
+              >00</span
+            ><span>Mindset & Core Concepts (this page)</span></a
+          >
+          <a
+            href="phase-1.html"
+            class="toc-link flex items-center gap-x-3 px-4 py-2 hover:bg-white rounded-2xl group"
+            ><span
+              class="font-mono text-xs w-6 text-slate-400 group-hover:text-blue-500"
+              >01</span
+            ><span>Project Setup & Durable Sessions</span></a
+          >
+          <a
+            href="phase-2.html"
+            class="toc-link flex items-center gap-x-3 px-4 py-2 hover:bg-white rounded-2xl group"
+            ><span
+              class="font-mono text-xs w-6 text-slate-400 group-hover:text-blue-500"
+              >02</span
+            ><span>Connecting to Grok</span></a
+          >
+          <a
+            href="phase-3.html"
+            class="toc-link flex items-center gap-x-3 px-4 py-2 hover:bg-white rounded-2xl group"
+            ><span
+              class="font-mono text-xs w-6 text-slate-400 group-hover:text-blue-500"
+              >03</span
+            ><span>Implementing Tools</span></a
+          >
+          <a
+            href="phase-4.html"
+            class="toc-link flex items-center gap-x-3 px-4 py-2 hover:bg-white rounded-2xl group"
+            ><span
+              class="font-mono text-xs w-6 text-slate-400 group-hover:text-blue-500"
+              >04</span
+            ><span>The Agent Loop</span></a
+          >
+          <a
+            href="phase-5.html"
+            class="toc-link flex items-center gap-x-3 px-4 py-2 hover:bg-white rounded-2xl group"
+            ><span
+              class="font-mono text-xs w-6 text-slate-400 group-hover:text-blue-500"
+              >05</span
+            ><span>Context Management & Turn Snapshots</span></a
+          >
+          <a
+            href="phase-6.html"
+            class="toc-link flex items-center gap-x-3 px-4 py-2 hover:bg-white rounded-2xl group"
+            ><span
+              class="font-mono text-xs w-6 text-slate-400 group-hover:text-blue-500"
+              >06</span
+            ><span>Safety, Permissions & Profiles</span></a
+          >
+          <a
+            href="phase-7.html"
+            class="toc-link flex items-center gap-x-3 px-4 py-2 hover:bg-white rounded-2xl group"
+            ><span
+              class="font-mono text-xs w-6 text-slate-400 group-hover:text-blue-500"
+              >07</span
+            ><span>Observability & Iteration</span></a
+          >
+          <a
+            href="phase-8.html"
+            class="toc-link flex items-center gap-x-3 px-4 py-2 hover:bg-white rounded-2xl group"
+            ><span
+              class="font-mono text-xs w-6 text-slate-400 group-hover:text-blue-500"
+              >08</span
+            ><span>Next Steps & Advanced Patterns</span></a
+          >
+        </div>
+      </div>
+
+      <!-- PHASE 0 -->
+      <div id="phase-0" class="mb-20 scroll-mt-20">
+        <div class="flex items-center gap-x-3 mb-6">
+          <div class="step-number bg-slate-900 text-white rounded-2xl text-sm">
+            00
+          </div>
+          <h2 class="text-4xl font-semibold tracking-tight">
+            Mindset & Core Concepts
+          </h2>
+        </div>
+        <div class="prose-custom max-w-3xl">
+          <p class="text-xl text-slate-600">
+            Before we write any code, we need to understand what we're actually
+            building.
+          </p>
+          <div class="my-8 p-8 bg-white border border-slate-200 rounded-3xl">
+            <h4 class="font-semibold mb-3">The Most Important Idea</h4>
+            <p class="text-lg">
+              The <span class="font-semibold text-blue-600">model</span> (Grok,
+              Claude, GPT, etc.) is just the <strong>brain</strong>.
+            </p>
+            <p class="text-lg mt-2">
+              The <span class="font-semibold">harness</span> is the
+              <strong>body</strong> — it gives the brain hands (tools), memory
+              (session history), safety brakes (permissions), and eyes (logging
+              & context).
+            </p>
+          </div>
+        </div>
+
+        <nav class="lesson-nav" aria-label="Lesson navigation">
+          <a href="phase-1.html" class="lesson-nav__link lesson-nav__link--next"
+            >Project Setup & Durable Sessions →</a
+          >
+        </nav>
+      </div>
+    </div>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

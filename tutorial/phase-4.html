@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 04 — The Agent Loop | Agent Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <header class="site-header">
+        <div class="site-header__inner max-w-screen-xl mx-auto">
+            <a href="index.html" class="site-header__brand">
+                <div>
+                    <h1 class="site-header__title heading-font">Agent Harness</h1>
+                    <p class="site-header__subtitle">TypeScript Edition</p>
+                </div>
+            </a>
+            <div class="site-header__actions">
+                <span class="site-header__badge">Phase 04 of 08</span>
+                <a href="index.html" class="site-header__cta">Table of Contents</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-screen-xl mx-auto px-6 pt-10 pb-20">
+        <!-- PHASE 4 -->
+        <div id="phase-4" class="mb-20 scroll-mt-20">
+            <div class="flex items-center gap-x-3 mb-6">
+                <div class="step-number bg-blue-600 text-white rounded-2xl text-sm">04</div>
+                <h2 class="text-4xl font-semibold tracking-tight">The Agent Loop</h2>
+            </div>
+            <div class="prose-custom">
+                <div class="learn-banner">
+                    <span class="learn-banner__icon">💡</span>
+                    <div>
+                        <strong>How to use this lesson:</strong> Same pattern as earlier phases — type each snippet, use the sidebar, expand one section at a time. You already have durable sessions (Phase 1), a Grok client (Phase 2), and file tools (Phase 3). This phase wires them into a <strong>repeating loop</strong> — the moment your project stops being a chat wrapper and becomes an agent.
+                    </div>
+                </div>
+
+                <p>This is the heart of the harness. A single <code>chat()</code> call can return one tool request — but real tasks need many rounds: list a folder, read a file, think, edit, verify. The loop handles that automatically.</p>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <div class="font-semibold mb-2">Basic loop flow (one user prompt):</div>
+                    <ol class="list-decimal pl-5 space-y-1 text-sm">
+                        <li>Append the user's message to the session</li>
+                        <li>Send current conversation history + tool schemas to the model</li>
+                        <li>If the model requests tools → run them, append results to history, go to step 2</li>
+                        <li>If the model replies with text → save it and return that answer to the user</li>
+                    </ol>
+                </div>
+
+                <p>You'll create two files:</p>
+                <ul>
+                    <li><code>src/harness/loop.ts</code> — the loop logic (<code>runTurn</code>)</li>
+                    <li><code>src/main.ts</code> — a small CLI so you can type tasks in the terminal</li>
+                </ul>
+
+                <h3 class="font-semibold text-2xl mt-8 mb-4">Step 1: Create <code>src/harness/loop.ts</code></h3>
+                <p>Start with imports and a safety constant. The loop will call your existing pieces — it does not replace them.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — imports &amp; guard</div>
+                            <pre class="language-typescript"><code>import type { Message } from './session.js';
+import type { Session } from './session.js';
+import type { GrokAgent } from './agent.js';
+import { TOOLS, executeTool } from './tools.js';
+
+const MAX_ITERATIONS = 25;</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for loop.ts imports">
+                        <div class="guide-header">
+                            <h4>Pull in what you built</h4>
+                            <p>The loop orchestrates — it doesn't reimplement tools or API calls.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="3" open>
+                                <summary><span class="guide-section__lines">Lines 1–3</span><span class="guide-section__title">Type-only imports</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>import type</code> tells TypeScript these imports are erased at runtime — you only need them for typing. With <code>verbatimModuleSyntax</code>, that's required for type-only symbols.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="4" data-end="4">
+                                <summary><span class="guide-section__lines">Line 4</span><span class="guide-section__title">TOOLS &amp; executeTool</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Same exports from Phase 3. Every model call passes <code>TOOLS</code>; every tool request goes through <code>executeTool</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="6" data-end="6">
+                                <summary><span class="guide-section__lines">Line 6</span><span class="guide-section__title">MAX_ITERATIONS</span></summary>
+                                <div class="guide-section__body">
+                                    <p>A runaway model could call tools forever. This cap stops infinite loops and gives you a clear error. Production harnesses often add smarter stopping rules; 25 is plenty for learning.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Harness problems include "stuck in a loop" — always bound iteration count early.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 2: Strip harness metadata before API calls</h3>
+                <p>Your <code>Session</code> stores extra fields like <code>timestamp</code> (and later <code>hidden</code> for turn snapshots in Phase 5). The Grok API only accepts standard chat roles — send a cleaned copy of history.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — toApiMessages()</div>
+                            <pre class="language-typescript"><code>/** Strip harness-only fields before sending history to the API. */
+export function toApiMessages(messages: Message[]): Record&lt;string, unknown&gt;[] {
+  return messages.map(({ timestamp, hidden, ...rest }) => rest);
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for toApiMessages">
+                        <div class="guide-header">
+                            <h4>Context transform (minimal version)</h4>
+                            <p>Real harnesses filter, trim, or summarize here. Yours just drops local metadata.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">export function toApiMessages</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Exported so you can unit-test it later. The loop and only the loop should decide what the model sees — not random callers reaching into <code>session.messages</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="2" data-end="3">
+                                <summary><span class="guide-section__lines">Lines 2–3</span><span class="guide-section__title">Destructuring rest</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>{ timestamp, hidden, ...rest }</code> peels off harness fields; <code>rest</code> keeps <code>role</code>, <code>content</code>, <code>tool_calls</code>, <code>tool_call_id</code>, etc. — whatever the API needs for that message.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Durable logs can be richer than model context. Phase 5 adds more of this pattern.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 3: <code>runTurn</code> — start the loop</h3>
+                <p>We build <code>runTurn</code> in <strong>three pieces</strong> (Steps 3, 4, and 5) — all in the same file, all inside one <code>for</code> loop. This step adds the function signature, saves the user message, and opens the loop with the first model call.</p>
+                <p>Add the block below <strong>after</strong> <code>toApiMessages()</code> from Step 2. Stop at the end of this snippet — do not close the <code>for</code> loop or <code>runTurn</code> yet.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — runTurn (part 1 of 3; loop body continues in Steps 4–5)</div>
+                            <pre class="language-typescript"><code>/**
+ * Run one user turn: append the user message, loop with the model until
+ * it returns a final text answer (possibly after several tool rounds).
+ */
+export async function runTurn(
+  session: Session,
+  agent: GrokAgent,
+  userInput: string,
+): Promise&lt;string&gt; {
+  await session.addMessage('user', userInput);
+
+  for (let step = 0; step &lt; MAX_ITERATIONS; step++) {
+    const response = await agent.chat(
+      toApiMessages(session.getHistory()),
+      TOOLS,
+    );
+    const message = response.choices[0]?.message;
+
+    if (!message) {
+      throw new Error('Model returned no message');
+    }</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for runTurn start">
+                        <div class="guide-header">
+                            <h4>One turn, many model calls</h4>
+                            <p>Part 1 of <code>runTurn</code>. The <code>for</code> loop stays <strong>open</strong> at the end of this snippet.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="5" data-end="9" open>
+                                <summary><span class="guide-section__lines">Lines 5–9</span><span class="guide-section__title">runTurn parameters</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>session</code> — durable memory. <code>agent</code> — Grok client. <code>userInput</code> — what the human typed this turn. Returns the final assistant text when the model stops calling tools.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="10" data-end="10">
+                                <summary><span class="guide-section__lines">Line 10</span><span class="guide-section__title">Save user message first</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Always persist before calling the model. If the process crashes mid-turn, you still have the user's request on disk.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="12" data-end="16">
+                                <summary><span class="guide-section__lines">Lines 12–16</span><span class="guide-section__title">Call the model</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>getHistory()</code> then <code>toApiMessages()</code> — full conversation so far, cleaned. <code>TOOLS</code> tells Grok what it can invoke. This is the same <code>chat()</code> from Phase 2, now inside a loop.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="17" data-end="21">
+                                <summary><span class="guide-section__lines">Lines 17–21</span><span class="guide-section__title">Read the response</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>choices[0]?.message</code> — optional chaining because TypeScript's <code>noUncheckedIndexedAccess</code> treats array access as possibly undefined. We throw if the API returned nothing useful.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="my-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl text-sm">
+                    <strong>Checkpoint — your file should look like this:</strong>
+                    <pre class="mt-3 text-xs leading-relaxed"><code>loop.ts
+├── imports + MAX_ITERATIONS     (Step 1)
+├── toApiMessages()              (Step 2)
+└── runTurn()                    (Step 3 — in progress)
+    ├── await session.addMessage('user', …)
+    └── for (…) {
+          … chat, get message …
+          if (!message) throw
+          ▼ Steps 4 &amp; 5 go here — loop body not finished
+        }   ← do NOT type this closing brace yet</code></pre>
+                    <p class="mt-3">Steps 4 and 5 paste <em>inside</em> the <code>for</code> loop, at the same indentation as the <code>const response = …</code> line above.</p>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 4: Handle tool calls — the "act" half of the loop</h3>
+                <p><strong>Where this goes:</strong> Still in <code>runTurn</code>, still inside the <code>for</code> loop from Step 3. Paste the block below <strong>immediately after</strong> the <code>if (!message) { throw … }</code> block — same indentation (four spaces). Do not start a new function or a new loop.</p>
+                <p>When <code>message.tool_calls</code> is non-empty, the model wants your harness to do work. Save the assistant message (including the tool call objects), run each tool, append tool results, and <strong>continue</strong> the loop without returning yet.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — paste inside runTurn's for loop, after Step 3</div>
+                            <pre class="language-typescript"><code>    const toolCalls = message.tool_calls ?? [];
+
+    if (toolCalls.length > 0) {
+      await session.addMessage('assistant', message.content ?? '', {
+        tool_calls: toolCalls,
+      });
+
+      for (const toolCall of toolCalls) {
+        if (toolCall.type !== 'function') continue;
+        const fn = toolCall.function;
+        console.log(`  tool → ${fn.name}`);
+        const result = await executeTool(fn.name, fn.arguments);
+        await session.addMessage('tool', result, {
+          tool_call_id: toolCall.id,
+          name: fn.name,
+        });
+      }
+      continue;
+    }</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for tool branch">
+                        <div class="guide-header">
+                            <h4>Observe → decide → act → observe</h4>
+                            <p>Part 2 of <code>runTurn</code> — same <code>for</code> loop, pasted after the <code>if (!message)</code> check.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">tool_calls ?? []</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Some responses omit <code>tool_calls</code> entirely. Default to an empty array so the rest of the code can always use <code>.length</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="3" data-end="6">
+                                <summary><span class="guide-section__lines">Lines 3–6</span><span class="guide-section__title">Save assistant + tool_calls</span></summary>
+                                <div class="guide-section__body">
+                                    <p>The API requires the assistant message that <em>requested</em> tools to stay in history, with the full <code>tool_calls</code> array attached. <code>content</code> may be empty when the model only wants tools — that's normal.</p>
+                                    <div class="guide-why"><strong>Why:</strong> If you only save tool results without the assistant tool-call message, the next API request fails validation.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="8" data-end="16">
+                                <summary><span class="guide-section__lines">Lines 8–16</span><span class="guide-section__title">Execute each tool</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>if (toolCall.type !== 'function') continue</code> — the OpenAI SDK types allow custom tool call shapes; our harness only implements named functions from <code>TOOLS</code>. Skip anything else.</p>
+                                    <p><code>toolCall.function</code> has <code>name</code> and <code>arguments</code> (a JSON string). <code>executeTool</code> from Phase 3 parses and runs it. The tool message needs <code>tool_call_id</code> matching the call id so the model knows which result belongs to which request.</p>
+                                    <p><code>console.log</code> is optional but helpful — you'll see the agent working in the terminal before the final answer.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="17" data-end="17">
+                                <summary><span class="guide-section__lines">Line 17</span><span class="guide-section__title">continue</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Jump back to the top of the <code>for</code> loop — send updated history to the model again. The model now "sees" the tool output and decides what to do next (more tools or a final reply).</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 5: Finish when the model replies with text</h3>
+                <p><strong>Where this goes:</strong> Immediately <strong>after</strong> the tool <code>if</code> block from Step 4 — same indentation, still inside the <code>for</code> loop. When the model did not request tools, execution skips the <code>if (toolCalls.length &gt; 0)</code> block and runs these lines instead.</p>
+                <p>This step also closes the <code>for</code> loop and <code>runTurn</code> with the final <code>}</code> braces. After this snippet, <code>runTurn</code> is complete.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — paste after Step 4; closes the for loop and runTurn</div>
+                            <pre class="language-typescript"><code>    const text = message.content ?? '';
+    await session.addMessage('assistant', text);
+    return text;
+  }
+
+  throw new Error(`Agent loop exceeded ${MAX_ITERATIONS} iterations`);
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for final answer">
+                        <div class="guide-header">
+                            <h4>Done for this user prompt</h4>
+                            <p>Returning ends <code>runTurn</code>; the CLI prints the string.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="3" open>
+                                <summary><span class="guide-section__lines">Lines 1–3</span><span class="guide-section__title">Final assistant message</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Persist the answer to JSONL like every other message. <code>return text</code> bubbles up to <code>main.ts</code> for display.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="6" data-end="6">
+                                <summary><span class="guide-section__lines">Line 6</span><span class="guide-section__title">Exceeded iterations</span></summary>
+                                <div class="guide-section__body">
+                                    <p>If the loop ran 25 times without a plain-text finish, something is wrong (model stuck retrying, bad tool errors, etc.). Throw so the CLI can show an error instead of hanging silently.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="highlight-box p-6 rounded-3xl mt-8">
+                    <strong>Recap — your <code>loop.ts</code> file</strong>
+                    <p class="mt-3">You should now have a complete <code>src/harness/loop.ts</code> with two exports:</p>
+                    <ul class="mt-3 space-y-2 text-sm list-disc pl-5">
+                        <li><code>toApiMessages()</code> — strips harness-only fields (<code>timestamp</code>, <code>hidden</code>) before history goes to Grok.</li>
+                        <li><code>runTurn()</code> — runs one user prompt end-to-end.</li>
+                    </ul>
+                    <p class="mt-4 text-sm"><code>runTurn</code> saves the user's message, then repeats until the model stops calling tools:</p>
+                    <ol class="mt-2 space-y-1 text-sm list-decimal pl-5">
+                        <li>Send session history + <code>TOOLS</code> to <code>agent.chat()</code>.</li>
+                        <li>If the model requests tools → save the assistant message, run <code>executeTool</code> for each call, append tool results to the session, and loop again.</li>
+                        <li>If the model replies with plain text → save that assistant message and <strong>return</strong> the text to whoever called <code>runTurn</code>.</li>
+                    </ol>
+                    <p class="mt-4 text-sm">Every message (user, assistant, tool) is written to the session as you go, so the next <code>chat()</code> call sees the full story — including tool output the model needs to finish the task. If the loop runs 25 times without a text answer, it throws instead of spinning forever.</p>
+                    <p class="mt-3 text-sm">That's the agent loop: the harness talks to Grok, runs your file tools when asked, and hands back the model's final reply. Next you'll wire a CLI so you can type prompts from the terminal.</p>
+                </div>
+
+                <div class="my-8 p-8 bg-white border border-slate-200 rounded-3xl">
+                    <h4 class="font-semibold mb-3">What the message history looks like mid-turn</h4>
+                    <p class="text-sm mb-3">After the user asks "List files in src/harness", one turn might produce:</p>
+                    <pre class="language-json text-sm"><code>[
+  { "role": "system", "content": "You are a helpful coding agent..." },
+  { "role": "user", "content": "List files in src/harness" },
+  { "role": "assistant", "content": "", "tool_calls": [{ "id": "call_abc", "function": { "name": "list_files", "arguments": "{\"path\":\"src/harness\"}" } }] },
+  { "role": "tool", "tool_call_id": "call_abc", "name": "list_files", "content": "agent.ts\nloop.ts\nsession.ts\n..." },
+  { "role": "assistant", "content": "Here are the files in src/harness: ..." }
+]</code></pre>
+                    <p class="text-sm mt-3">That entire sequence is one <code>runTurn</code> call. The user only typed once; the loop handled the rest.</p>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 6: Create <code>src/main.ts</code> — the CLI entry point</h3>
+                <p>Wire session load, a system prompt, and a readline loop. This is how you actually talk to the agent — no HTTP server, just Node in the terminal.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/main.ts</div>
+                            <pre class="language-typescript"><code>import readline from 'readline/promises';
+import { stdin as input, stdout as output } from 'process';
+import { GrokAgent } from './harness/agent.js';
+import { Session } from './harness/session.js';
+import { runTurn } from './harness/loop.js';
+
+const SYSTEM_PROMPT =
+  'You are a helpful coding agent working in a local TypeScript project. ' +
+  'Use list_files and read_file to explore before editing. ' +
+  'When you finish a task, reply with a concise summary for the user.';
+
+async function main() {
+  const session = new Session();
+  await session.load();
+  const agent = new GrokAgent();
+
+  if (session.getHistory().length === 0) {
+    await session.addMessage('system', SYSTEM_PROMPT);
+  }
+
+  console.log(`Session ${session.id} — empty line to quit\n`);
+
+  const rl = readline.createInterface({ input, output });
+
+  while (true) {
+    const line = await rl.question('> ');
+    if (!line.trim()) break;
+
+    console.log('\n… agent working …\n');
+    try {
+      const reply = await runTurn(session, agent, line);
+      console.log(`\n${reply}\n`);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  rl.close();
+}
+
+main().catch(console.error);</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for main.ts">
+                        <div class="guide-header">
+                            <h4>Minimal REPL</h4>
+                            <p>Read–eval–print loop: prompt, run agent, print reply, repeat.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="2" open>
+                                <summary><span class="guide-section__lines">Lines 1–2</span><span class="guide-section__title">readline</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Node's built-in line reader — no extra npm package. <code>readline/promises</code> gives <code>await rl.question()</code> instead of callbacks.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="7" data-end="10">
+                                <summary><span class="guide-section__lines">Lines 7–10</span><span class="guide-section__title">SYSTEM_PROMPT</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Sets expectations: explore before edit, summarize when done. Stored as a normal <code>system</code> message so it persists in JSONL with the session.</p>
+                                    <div class="guide-why"><strong>Why:</strong> The harness shapes behavior through system context, not just tool descriptions.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="12" data-end="15">
+                                <summary><span class="guide-section__lines">Lines 12–15</span><span class="guide-section__title">Session + agent setup</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>load()</code> resumes prior messages if the JSONL file exists. New sessions get a fresh UUID and an empty history until you add the system prompt.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="17" data-end="19">
+                                <summary><span class="guide-section__lines">Lines 17–19</span><span class="guide-section__title">System message once</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Only when history is empty — avoids duplicating the system prompt every time you restart the CLI on the same session file.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="23" data-end="35">
+                                <summary><span class="guide-section__lines">Lines 23–35</span><span class="guide-section__title">Prompt loop</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Each non-empty line runs one full <code>runTurn</code> (which may include many model calls). Empty line exits. <code>try/catch</code> keeps the REPL alive if one turn throws (API error, max iterations, etc.).</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 7: Add an npm script</h3>
+                <p>Optional but convenient — same pattern as <code>smoke-tools</code> from Phase 3.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">package.json — scripts</div>
+                            <pre class="language-json"><code>"scripts": {
+  "smoke-tools": "tsx src/smoke-tools.ts",
+  "start": "tsx src/main.ts"
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for npm start">
+                        <div class="guide-header">
+                            <h4>Run the harness</h4>
+                            <p><code>tsx</code> again — ESM + TypeScript without a build step.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="4" open>
+                                <summary><span class="guide-section__lines">scripts</span><span class="guide-section__title">npm start</span></summary>
+                                <div class="guide-section__body">
+                                    <p>From the project root: <code>npm start</code> or <code>npx tsx src/main.ts</code>. Requires <code>XAI_API_KEY</code> in <code>.env</code> from Phase 2.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 8: Run it — your first real agent</h3>
+                <p>From the project root (where <code>package.json</code> lives):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">Terminal</div>
+                            <pre class="language-bash"><code>npm start</code></pre>
+                        </div>
+                        <div class="code-block mt-4">
+                            <div class="code-block__header">Example session</div>
+                            <pre><code>Session a1b2c3d4-... — empty line to quit
+
+> List every file in src/harness and summarize what each one does.
+
+… agent working …
+
+  tool → list_files
+  tool → read_file
+  tool → read_file
+  ...
+
+The harness folder contains session.ts (durable JSONL memory), ...</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for running the agent">
+                        <div class="guide-header">
+                            <h4>What to look for</h4>
+                            <p>You should see tool lines before the final answer.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">npm start</span><span class="guide-section__title">First run</span></summary>
+                                <div class="guide-section__body">
+                                    <p>A new <code>sessions/&lt;uuid&gt;.jsonl</code> file appears. Every message — system, user, assistant, tool — is appended as the turn progresses.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="1" data-end="1">
+                                <summary><span class="guide-section__lines">Example</span><span class="guide-section__title">Good tasks to try</span></summary>
+                                <div class="guide-section__body">
+                                    <ul>
+                                        <li>"What files are in the project root?"</li>
+                                        <li>"Read package.json and tell me the dependencies."</li>
+                                        <li>"Find TODO comments in src/ and list them."</li>
+                                    </ul>
+                                    <p>Start read-only. Once that works, try a small write: "Create notes.txt with a one-line summary of this project."</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="1" data-end="1">
+                                <summary><span class="guide-section__lines">Troubleshooting</span><span class="guide-section__title">Common issues</span></summary>
+                                <div class="guide-section__body">
+                                    <ul>
+                                        <li><strong>401 / auth errors</strong> — check <code>.env</code> and <code>XAI_API_KEY</code>.</li>
+                                        <li><strong>Tool error in output</strong> — the loop is working; the model hit a bad path. Read the tool result in the JSONL file.</li>
+                                        <li><strong>Max iterations</strong> — model may be looping on a failing tool; fix the underlying error or raise the cap temporarily while debugging.</li>
+                                    </ul>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl mt-8">
+                    <strong>When should you stop and test?</strong>
+                    <ul class="mt-3 space-y-2 text-sm list-disc pl-5">
+                        <li><strong>After typing loop.ts:</strong> Run <code>npx tsc --noEmit</code> if you want a quick type check — no API call yet.</li>
+                        <li><strong>After main.ts (here):</strong> Run <code>npm start</code> — this is the milestone. You should see tool calls in the terminal and a final answer.</li>
+                        <li><strong>After Phase 5:</strong> Same CLI; you'll add turn snapshots inside the loop before each <code>chat()</code> call.</li>
+                    </ul>
+                </div>
+
+                <div class="highlight-box p-6 rounded-3xl mt-6">
+                    <strong>Checkpoint:</strong> You have a working agent loop — session memory, Grok, tools, and repetition. The harness can explore and edit files across multiple model steps. Phase 5 adds turn snapshots so you can debug what the model saw each iteration; Phase 6 adds permission profiles before writes.
+                </div>
+            </div>
+
+            <nav class="lesson-nav" aria-label="Lesson navigation">
+                <a href="phase-3.html" class="lesson-nav__link lesson-nav__link--prev">← Implementing Tools</a>
+                <a href="phase-5.html" class="lesson-nav__link lesson-nav__link--next">Context Management & Turn Snapshots →</a>
+            </nav>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>

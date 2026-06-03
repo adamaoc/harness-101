@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 03 — Implementing Tools | Agent Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <header class="site-header">
+        <div class="site-header__inner max-w-screen-xl mx-auto">
+            <a href="index.html" class="site-header__brand">
+                <div>
+                    <h1 class="site-header__title heading-font">Agent Harness</h1>
+                    <p class="site-header__subtitle">TypeScript Edition</p>
+                </div>
+            </a>
+            <div class="site-header__actions">
+                <span class="site-header__badge">Phase 03 of 08</span>
+                <a href="index.html" class="site-header__cta">Table of Contents</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-screen-xl mx-auto px-6 pt-10 pb-20">
+        <!-- PHASE 3 -->
+        <div id="phase-3" class="mb-20 scroll-mt-20">
+            <div class="flex items-center gap-x-3 mb-6">
+                <div class="step-number bg-blue-600 text-white rounded-2xl text-sm">03</div>
+                <h2 class="text-4xl font-semibold tracking-tight">Implementing Tools</h2>
+            </div>
+            <div class="prose-custom">
+                <div class="learn-banner">
+                    <span class="learn-banner__icon">💡</span>
+                    <div>
+                        <strong>How to use this lesson:</strong> Same pattern as Phases 01–02 — type each snippet, use the sidebar, expand one section at a time. You already wired <code>tools</code> into <code>GrokAgent.chat()</code> in Phase 2; this phase defines <em>what</em> those tools are and <em>how</em> your harness runs them when the model asks.
+                    </div>
+                </div>
+
+                <p>Tools are how your agent actually does work in the real world. Without them, Grok can only talk. With them, it can <strong>read</strong>, <strong>write</strong>, and <strong>explore</strong> files in your project — the same primitives every coding agent needs.</p>
+
+                <p>We start with three essential tools: <code>read_file</code>, <code>write_file</code>, and <code>list_files</code>. Each tool has two halves:</p>
+                <ul>
+                    <li><strong>Schema</strong> — a JSON description you send to the model so it knows the tool name, what it does, and what arguments to pass.</li>
+                    <li><strong>Handler</strong> — TypeScript code <em>you</em> run on disk when the model requests that tool. The model never touches your filesystem directly; your harness does.</li>
+                </ul>
+
+                <div class="my-8 p-8 bg-white border border-slate-200 rounded-3xl">
+                    <h4 class="font-semibold mb-3">Quality rule (worth repeating)</h4>
+                    <p class="text-lg">Always require the agent to <strong>read a file before editing it</strong>. Say that in the tool description. Models that skip reading tend to hallucinate file contents and overwrite good code. Your descriptions are part of the harness.</p>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-8 mb-4">Step 1: Create <code>src/harness/tools.ts</code></h3>
+                <p>This file exports two things the agent loop will use in Phase 4: <code>TOOLS</code> (schemas for <code>chat()</code>) and <code>executeTool()</code> (run a tool by name). We also add a small <strong>workspace sandbox</strong> so paths cannot escape your project folder.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/tools.ts — imports & path safety</div>
+                            <pre class="language-typescript"><code>import fs from 'fs/promises';
+import path from 'path';
+
+const WORKSPACE_ROOT = process.cwd();
+
+function resolvePath(relativePath: string): string {
+  const resolved = path.resolve(WORKSPACE_ROOT, relativePath);
+  if (!resolved.startsWith(WORKSPACE_ROOT)) {
+    throw new Error(`Path escapes workspace: ${relativePath}`);
+  }
+  return resolved;
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for tools.ts imports">
+                        <div class="guide-header">
+                            <h4>Workspace sandbox</h4>
+                            <p>Every file tool goes through <code>resolvePath</code>.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="2" open>
+                                <summary><span class="guide-section__lines">Lines 1–2</span><span class="guide-section__title">Node filesystem imports</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Same modules as <code>session.ts</code> — async file I/O and cross-platform paths.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="4" data-end="4">
+                                <summary><span class="guide-section__lines">Line 4</span><span class="guide-section__title">WORKSPACE_ROOT</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>process.cwd()</code> is the folder you run the agent from (your project root). All relative paths are interpreted from here — same as running <code>ls</code> in the terminal from that directory.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Later phases can change this to a specific repo path; for now, "where you started the process" is enough.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="6" data-end="11">
+                                <summary><span class="guide-section__lines">Lines 6–11</span><span class="guide-section__title">resolvePath()</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>path.resolve</code> turns <code>../secrets</code> into an absolute path. We then check it still starts with <code>WORKSPACE_ROOT</code>. If someone tricks the model into <code>../../.env</code>, we throw instead of leaking files outside the project.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Phase 6 adds richer permissions; this is the first safety layer.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 2: Tool schemas for the model</h3>
+                <p>Add the <code>TOOLS</code> array below your <code>resolvePath</code> function. This is the OpenAI/Grok shape: each entry is <code>type: 'function'</code> plus a <code>function</code> object with <code>name</code>, <code>description</code>, and <code>parameters</code> (JSON Schema).</p>
+                <p>In Phase 4 you'll pass <code>TOOLS</code> into <code>agent.chat(messages, TOOLS)</code>. The model reads these descriptions when deciding whether to call a tool.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/tools.ts — TOOLS array</div>
+                            <pre class="language-typescript"><code>export const TOOLS = [
+  {
+    type: 'function' as const,
+    function: {
+      name: 'read_file',
+      description:
+        'Read the full text content of a file. Use this before editing a file you have not read in this conversation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'File path relative to the project root (e.g. src/harness/session.ts)',
+          },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'write_file',
+      description:
+        'Write text to a file, creating parent folders if needed. Prefer reading the file first so you know what you are changing.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Relative path from project root' },
+          content: { type: 'string', description: 'Full new file contents' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function' as const,
+    function: {
+      name: 'list_files',
+      description: 'List files and folders in a directory (one level). Use to explore before reading.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'Directory relative to project root (use "." for root)',
+          },
+        },
+        required: ['path'],
+      },
+    },
+  },
+];</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for TOOLS array">
+                        <div class="guide-header">
+                            <h4>What the model sees</h4>
+                            <p>Descriptions are prompts — write them for the model, not for humans skimming code.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">export const TOOLS</span></summary>
+                                <div class="guide-section__body">
+                                    <p>One array, imported by the loop and passed wholesale to <code>chat()</code>. Keeping schemas in one place makes it easy to add tools later.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="3" data-end="3">
+                                <summary><span class="guide-section__lines">Line 3</span><span class="guide-section__title">type: 'function' as const</span></summary>
+                                <div class="guide-section__body">
+                                    <p>The API expects the literal <code>'function'</code>. <code>as const</code> narrows the type so TypeScript matches the SDK without widening to <code>string</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="5" data-end="18">
+                                <summary><span class="guide-section__lines">Lines 5–18</span><span class="guide-section__title">read_file schema</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>name</code> must match the <code>case</code> in <code>executeTool</code> later. <code>description</code> tells the model <em>when</em> to use the tool — we explicitly say "before editing." <code>parameters</code> is JSON Schema: one required string <code>path</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="22" data-end="36">
+                                <summary><span class="guide-section__lines">Lines 22–36</span><span class="guide-section__title">write_file schema</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Two required fields: <code>path</code> and <code>content</code> (full file body, not a patch). Real agents often add a separate <code>search_replace</code> tool later; for learning, full writes are simpler.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="40" data-end="54">
+                                <summary><span class="guide-section__lines">Lines 40–54</span><span class="guide-section__title">list_files schema</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Lets the model explore without guessing paths. <code>"."</code> means the project root. We only list one directory level — deep trees come in advanced patterns (Phase 8).</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 3: Handlers — the harness "hands"</h3>
+                <p>Below <code>TOOLS</code>, add private async functions that do the real work. They take plain strings (already validated paths from <code>resolvePath</code>) and return text the model will read as the tool result.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/tools.ts — handlers</div>
+                            <pre class="language-typescript"><code>async function readFile(pathArg: string): Promise&lt;string&gt; {
+  const filePath = resolvePath(pathArg);
+  return await fs.readFile(filePath, 'utf-8');
+}
+
+async function writeFile(pathArg: string, content: string): Promise&lt;string&gt; {
+  const filePath = resolvePath(pathArg);
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, content, 'utf-8');
+  return `Wrote ${pathArg} (${content.length} characters)`;
+}
+
+async function listFiles(pathArg: string): Promise&lt;string&gt; {
+  const dirPath = resolvePath(pathArg);
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+  const lines = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+  return lines.join('\n') || '(empty directory)';
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for tool handlers">
+                        <div class="guide-header">
+                            <h4>Real filesystem I/O</h4>
+                            <p>Return strings — the model only sees text tool results.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="4" open>
+                                <summary><span class="guide-section__lines">Lines 1–4</span><span class="guide-section__title">readFile</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Resolves the path, reads UTF-8 text, returns the whole file. Large files can blow up context — trimming or paging belongs in later phases.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="6" data-end="10">
+                                <summary><span class="guide-section__lines">Lines 6–10</span><span class="guide-section__title">writeFile</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>mkdir(..., { recursive: true })</code> creates missing folders (e.g. <code>src/new/</code>). Returns a short confirmation string, not the file body — enough for the model to know it succeeded.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="12" data-end="16">
+                                <summary><span class="guide-section__lines">Lines 12–16</span><span class="guide-section__title">listFiles</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>withFileTypes: true</code> tells us folder vs file so we can suffix folders with <code>/</code>. One entry per line keeps the result easy for the model to scan.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 4: <code>executeTool</code> — dispatch by name</h3>
+                <p>When the model calls a tool, the API gives you a <strong>tool call id</strong>, a <strong>function name</strong>, and an <strong>arguments</strong> string (JSON). Your loop will pass that arguments string here. This function parses JSON, routes to the right handler, and catches errors so the model gets a useful message instead of a crashed process.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/tools.ts — executeTool</div>
+                            <pre class="language-typescript"><code>export async function executeTool(name: string, argsJson: string): Promise&lt;string&gt; {
+  let args: Record&lt;string, unknown&gt;;
+  try {
+    args = JSON.parse(argsJson);
+  } catch {
+    return `Invalid tool arguments JSON: ${argsJson}`;
+  }
+
+  try {
+    switch (name) {
+      case 'read_file':
+        return await readFile(String(args.path ?? ''));
+      case 'write_file':
+        return await writeFile(String(args.path ?? ''), String(args.content ?? ''));
+      case 'list_files':
+        return await listFiles(String(args.path ?? '.'));
+      default:
+        return `Unknown tool: ${name}`;
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `Tool error (${name}): ${message}`;
+  }
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for executeTool">
+                        <div class="guide-header">
+                            <h4>Bridge from API to handlers</h4>
+                            <p>Phase 4 calls this once per tool request from the model.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">export async function executeTool</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Public entry point. <code>name</code> matches <code>function.name</code> in the schema. <code>argsJson</code> is the raw string from <code>tool_calls[].function.arguments</code> — not a parsed object yet.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="2" data-end="7">
+                                <summary><span class="guide-section__lines">Lines 2–7</span><span class="guide-section__title">Parse arguments</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Models occasionally emit malformed JSON. Returning an error string (instead of throwing) lets the model retry on the next loop iteration.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="9" data-end="18">
+                                <summary><span class="guide-section__lines">Lines 9–18</span><span class="guide-section__title">switch (name)</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Each <code>case</code> must match a <code>name</code> in <code>TOOLS</code>. <code>String(args.path ?? '')</code> coerces unknown JSON shapes to strings safely. <code>list_files</code> defaults path to <code>'.'</code> if missing.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="19" data-end="22">
+                                <summary><span class="guide-section__lines">Lines 19–22</span><span class="guide-section__title">catch (err)</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Missing files, permission errors, and sandbox violations become tool results like <code>Tool error (read_file): ENOENT...</code> so the agent loop keeps running.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Tool failures are normal; the model should read the error and adjust, not crash your process.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 5 (optional): Smoke-test your tools</h3>
+                <p>You do <strong>not</strong> have an agent loop yet, so the model cannot call these tools end-to-end. You <em>can</em> still verify the handlers work by calling <code>executeTool</code> yourself from a tiny script.</p>
+                <p>First install <code>tsx</code> — a small runner that executes TypeScript with ESM imports (including the <code>.js</code> extensions our <code>nodenext</code> setup requires):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">Terminal</div>
+                            <pre class="language-bash"><code>npm install -D tsx</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for tsx install">
+                        <div class="guide-header">
+                            <h4>Why tsx?</h4>
+                            <p>Plain <code>ts-node</code> often fails on ESM projects with <code>"type": "module"</code>.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">npm install -D tsx</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Adds <code>tsx</code> as a dev dependency. We'll use it here and again in Phase 4 to run the agent CLI. You only install once.</p>
+                                    <div class="guide-why"><strong>Why not ts-node alone:</strong> Our imports use <code>./harness/tools.js</code> (correct for Node ESM). <code>tsx</code> resolves that to your <code>.ts</code> files at run time; bare <code>npx ts-node</code> often cannot.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p>Create <code>src/smoke-tools.ts</code> at the project root level under <code>src/</code> (not inside <code>harness/</code>):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/smoke-tools.ts</div>
+                            <pre class="language-typescript"><code>import { executeTool } from './harness/tools.js';
+
+async function main() {
+  console.log(await executeTool('list_files', JSON.stringify({ path: 'src/harness' })));
+  console.log(await executeTool('write_file', JSON.stringify({ path: 'scratch.txt', content: 'hello from harness' })));
+  console.log(await executeTool('read_file', JSON.stringify({ path: 'scratch.txt' })));
+}
+
+main().catch(console.error);</code></pre>
+                        </div>
+                        <div class="code-block mt-4">
+                            <div class="code-block__header">Terminal (from project root)</div>
+                            <pre class="language-bash"><code>npx tsx src/smoke-tools.ts</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for smoke test">
+                        <div class="guide-header">
+                            <h4>Quick manual check</h4>
+                            <p>Not automated tests — just proof your hands work.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">.js extension in import</span></summary>
+                                <div class="guide-section__body">
+                                    <p>With <code>"module": "nodenext"</code>, Node expects the emitted file extension in imports. If your editor complains, match whatever Phase 1's <code>tsconfig</code> uses — the goal is a successful run from the project root.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="3" data-end="7">
+                                <summary><span class="guide-section__lines">Lines 3–7</span><span class="guide-section__title">Three tool calls</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Lists your harness folder, writes <code>scratch.txt</code>, reads it back. Delete <code>scratch.txt</code> afterward if you like — or add it to <code>.gitignore</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="1" data-end="1">
+                                <summary><span class="guide-section__lines">Terminal</span><span class="guide-section__title">npx tsx</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Run from the same folder as <code>package.json</code>. You should see a directory listing, a write confirmation, then <code>hello from harness</code>. No API key needed for this step.</p>
+                                    <p>Alternatively: <code>npm run smoke-tools</code> if you add <code>"smoke-tools": "tsx src/smoke-tools.ts"</code> to the <code>scripts</code> section of <code>package.json</code>.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl mt-8">
+                    <strong>When should you stop and test?</strong>
+                    <ul class="mt-3 space-y-2 text-sm list-disc pl-5">
+                        <li><strong>After Phase 3 (here):</strong> Optional smoke test above — confirms file tools only. You still cannot "talk to the agent" in a loop.</li>
+                        <li><strong>After Phase 4:</strong> This is the real milestone. You'll add <code>loop.ts</code> and a small CLI entry point (<code>src/main.ts</code>). <em>That</em> is when you run the harness, type a task, and watch Grok call <code>read_file</code> / <code>list_files</code> over multiple turns. No separate HTTP server — you run it like any Node script from the terminal.</li>
+                        <li><strong>Phases 5–7:</strong> Keep using the same CLI; each phase improves memory, safety, and logging.</li>
+                    </ul>
+                    <p class="mt-3 text-sm">If the smoke test passes but you are eager to see the model use tools — finish Phase 4 first. Wiring <code>TOOLS</code> into one <code>chat()</code> call without a loop only produces a single tool request with no follow-up.</p>
+                </div>
+
+                <div class="highlight-box p-6 rounded-3xl mt-6">
+                    <strong>Checkpoint:</strong> You have <code>TOOLS</code> and <code>executeTool</code>. <code>GrokAgent.chat()</code> already accepts a tools array from Phase 2. Next, Phase 4 connects session history, model responses, and tool execution into a repeating loop — that's when your harness becomes an agent.
+                </div>
+            </div>
+
+            <nav class="lesson-nav" aria-label="Lesson navigation">
+                <a href="phase-2.html" class="lesson-nav__link lesson-nav__link--prev">← Connecting to Grok</a>
+                <a href="phase-4.html" class="lesson-nav__link lesson-nav__link--next">The Agent Loop →</a>
+            </nav>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>

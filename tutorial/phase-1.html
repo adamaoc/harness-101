@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 01 — Project Setup & Durable Sessions | Agent Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <header class="site-header">
+        <div class="site-header__inner max-w-screen-xl mx-auto">
+            <a href="index.html" class="site-header__brand">
+                <div>
+                    <h1 class="site-header__title heading-font">Agent Harness</h1>
+                    <p class="site-header__subtitle">TypeScript Edition</p>
+                </div>
+            </a>
+            <div class="site-header__actions">
+                <span class="site-header__badge">Phase 01 of 08</span>
+                <a href="index.html" class="site-header__cta">Table of Contents</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-screen-xl mx-auto px-6 pt-10 pb-20">
+        <!-- PHASE 1 -->
+        <div id="phase-1" class="mb-20 scroll-mt-20">
+            <div class="flex items-center gap-x-3 mb-6">
+                <div class="step-number bg-blue-600 text-white rounded-2xl text-sm">01</div>
+                <h2 class="text-4xl font-semibold tracking-tight">Project Setup & Durable Sessions</h2>
+            </div>
+
+            <div class="prose-custom">
+                <div class="learn-banner">
+                    <span class="learn-banner__icon">💡</span>
+                    <div>
+                        <strong>How to use this lesson:</strong> Don't copy whole files at once. Type each snippet yourself. On desktop, the explanation panel sits beside the code; on mobile it appears below. Click a section in the sidebar — the matching lines highlight in blue. Expand one section at a time and only move on when it makes sense.
+                    </div>
+                </div>
+
+                <p>The first thing we build is the most important part of any harness: <strong>durable state</strong> — a way to remember every message even if the process crashes.</p>
+
+                <h3 class="font-semibold text-2xl mt-8 mb-4">Step 1: Create the Project</h3>
+                <p>Run these commands in your terminal. Each one sets up one piece of the project.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">Terminal</div>
+                            <pre class="language-bash"><code>mkdir my-ts-agent && cd my-ts-agent
+npm init -y
+npm install openai dotenv
+npm install -D typescript ts-node @types/node
+npx tsc --init</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for project setup commands">
+                        <div class="guide-header">
+                            <h4>What each command does</h4>
+                            <p>Run these top to bottom in an empty folder.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">Create and enter the project folder</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>mkdir my-ts-agent</code> creates a new directory. <code>&&</code> means "and then, if that succeeded." <code>cd my-ts-agent</code> moves you inside it so every file you create lands in the right place.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Keeping the harness in its own folder avoids mixing it with other projects and makes paths predictable.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="2" data-end="2">
+                                <summary><span class="guide-section__lines">Line 2</span><span class="guide-section__title">Initialize npm</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>npm init -y</code> creates a <code>package.json</code> file. The <code>-y</code> flag accepts all defaults so you aren't prompted with questions.</p>
+                                    <div class="guide-why"><strong>Why:</strong> <code>package.json</code> is how Node knows your project name, dependencies, and how to run scripts.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="3" data-end="3">
+                                <summary><span class="guide-section__lines">Line 3</span><span class="guide-section__title">Install runtime packages</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>openai</code> is the SDK we use to talk to Grok (xAI's API is OpenAI-compatible). <code>dotenv</code> loads secrets like your API key from a <code>.env</code> file so they never go in source code.</p>
+                                    <div class="guide-why"><strong>Why:</strong> These run when your agent runs — they're "production" dependencies, not just for development.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="4" data-end="4">
+                                <summary><span class="guide-section__lines">Line 4</span><span class="guide-section__title">Install dev-only packages</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>-D</code> saves packages as devDependencies. <code>typescript</code> compiles TS to JS. <code>ts-node</code> lets you run TS directly while learning. <code>@types/node</code> teaches TypeScript about Node globals like <code>fs</code> and <code>process</code>.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Without <code>@types/node</code>, your editor will show red squiggles on every Node import even when the code works.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="5" data-end="5">
+                                <summary><span class="guide-section__lines">Line 5</span><span class="guide-section__title">Generate TypeScript config</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>npx tsc --init</code> creates <code>tsconfig.json</code> — the rulebook TypeScript follows when checking and compiling your code.</p>
+                                    <div class="guide-why"><strong>Why:</strong> We'll tweak this file in the next step so Node and strict typing work together.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 2: package.json — use ESM</h3>
+                <p>Open <code>package.json</code> and add <code>"type": "module"</code>. This tells Node to treat <code>import</code> / <code>export</code> as real ES modules.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">package.json (excerpt)</div>
+                            <pre class="language-json"><code>{
+  "name": "my-ts-agent",
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "openai": "^6.39.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for package.json">
+                        <div class="guide-header">
+                            <h4>Field by field</h4>
+                            <p>Only change what's shown — npm fills in other fields automatically.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="2" data-end="2" open>
+                                <summary><span class="guide-section__lines">Line 2</span><span class="guide-section__title">Project name</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Matches the folder you created. Used by npm if you publish (you won't here, but it's required).</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="3" data-end="3">
+                                <summary><span class="guide-section__lines">Line 3</span><span class="guide-section__title">"type": "module"</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Without this, Node defaults to CommonJS (<code>require</code>). Our code uses <code>import</code>, so we need ESM. This one line prevents a whole class of "export not allowed" errors.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Modern TypeScript + <code>verbatimModuleSyntax</code> expects your runtime module system to match your syntax.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="4" data-end="7">
+                                <summary><span class="guide-section__lines">Lines 4–7</span><span class="guide-section__title">dependencies</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Packages needed when the agent actually runs. Version numbers with <code>^</code> allow compatible updates when you reinstall later.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="8" data-end="12">
+                                <summary><span class="guide-section__lines">Lines 8–12</span><span class="guide-section__title">devDependencies</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Only needed while building and editing — not shipped to a server. TypeScript and type definitions live here.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 3: tsconfig.json</h3>
+                <p>Replace the generated config with this. Two settings matter immediately: <code>types: ["node"]</code> and <code>exactOptionalPropertyTypes</code>.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">tsconfig.json</div>
+                            <pre class="language-json"><code>{
+  "compilerOptions": {
+    "module": "nodenext",
+    "target": "esnext",
+    "types": ["node"],
+    "strict": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "sourceMap": true
+  },
+  "include": ["src/**/*"]
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for tsconfig.json">
+                        <div class="guide-header">
+                            <h4>Compiler options explained</h4>
+                            <p>Each flag changes how TypeScript checks your code.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="3" data-end="4" open>
+                                <summary><span class="guide-section__lines">Lines 3–4</span><span class="guide-section__title">module & target</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>nodenext</code> matches how Node resolves ESM imports (including file extensions). <code>esnext</code> lets you use modern JavaScript features TypeScript will compile down as needed.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="5" data-end="5">
+                                <summary><span class="guide-section__lines">Line 5</span><span class="guide-section__title">types: ["node"]</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Tells TypeScript to load <code>@types/node</code>. If this is missing or set to <code>[]</code>, <code>fs</code>, <code>path</code>, <code>process</code>, and <code>crypto</code> all show as unknown.</p>
+                                    <div class="guide-why"><strong>Why:</strong> This is the #1 fix when Node imports have red underlines after setup.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="6" data-end="6">
+                                <summary><span class="guide-section__lines">Line 6</span><span class="guide-section__title">strict: true</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Turns on all strict type-checking rules. Catches bugs early — worth the extra typing while learning.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="7" data-end="8">
+                                <summary><span class="guide-section__lines">Lines 7–8</span><span class="guide-section__title">verbatimModuleSyntax & isolatedModules</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>verbatimModuleSyntax</code> means <code>import</code>/<code>export</code> in TS must match what Node will see — no fake imports that disappear at compile time. <code>isolatedModules</code> ensures each file can compile on its own (required by many bundlers and runners).</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="9" data-end="9">
+                                <summary><span class="guide-section__lines">Line 9</span><span class="guide-section__title">exactOptionalPropertyTypes</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Optional API fields can't be explicitly set to <code>undefined</code> — you must omit them entirely. This affects OpenAI SDK calls in Phase 2 where <code>tools: undefined</code> would error but leaving <code>tools</code> out is fine.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="10" data-end="12">
+                                <summary><span class="guide-section__lines">Lines 10–12</span><span class="guide-section__title">Other safety nets</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>noUncheckedIndexedAccess</code> — array/object lookups might be undefined. <code>skipLibCheck</code> — skip type-checking inside <code>node_modules</code> for speed. <code>sourceMap</code> — maps errors back to your TS line numbers when debugging.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="14" data-end="14">
+                                <summary><span class="guide-section__lines">Line 14</span><span class="guide-section__title">include</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Only files under <code>src/</code> are part of this project. Create <code>src/harness/</code> before adding TypeScript files there.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 4: Create the Session Class</h3>
+                <p>Create <code>src/harness/session.ts</code>. This is the harness's memory — every message gets saved to disk immediately.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header"><span>src/harness/session.ts</span><span class="text-emerald-400 text-[10px]">DURABLE • JSONL</span></div>
+                            <pre class="language-typescript"><code>import fs from 'fs/promises';
+import path from 'path';
+import { randomUUID } from 'crypto';
+
+export type Message = {
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  content: string;
+  timestamp: string;
+  tool_call_id?: string;
+  name?: string;
+  [key: string]: any;
+};
+
+export class Session {
+  public readonly id: string;
+  private readonly filePath: string;
+  public messages: Message[] = [];
+
+  constructor(id?: string) {
+    this.id = id ?? randomUUID();
+    this.filePath = path.join(process.cwd(), 'sessions', `${this.id}.jsonl`);
+  }
+
+  async addMessage(role: Message['role'], content: string, meta: any = {}) {
+    const msg: Message = {
+      role,
+      content,
+      timestamp: new Date().toISOString(),
+      ...meta,
+    };
+
+    this.messages.push(msg);
+
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    await fs.appendFile(this.filePath, JSON.stringify(msg) + '\n');
+  }
+
+  async load() {
+    try {
+      const data = await fs.readFile(this.filePath, 'utf-8');
+      this.messages = data
+        .trim()
+        .split('\n')
+        .map((line: string) => JSON.parse(line));
+    } catch (e) {
+    }
+  }
+
+  getHistory() {
+    return this.messages;
+  }
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for session.ts">
+                        <div class="guide-header">
+                            <h4>Building session memory</h4>
+                            <p>Type this file section by section. Expand each block before writing those lines.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">import fs from 'fs/promises'</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Node's file-system module. The <code>/promises</code> version uses <code>async</code>/<code>await</code> instead of callbacks — easier to read when chaining disk writes.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Sessions persist to disk; we need async file I/O.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="2" data-end="2">
+                                <summary><span class="guide-section__lines">Line 2</span><span class="guide-section__title">import path from 'path'</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Builds file paths correctly on macOS, Linux, and Windows (<code>sessions/abc.jsonl</code> vs <code>sessions\\abc.jsonl</code>).</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="3" data-end="3">
+                                <summary><span class="guide-section__lines">Line 3</span><span class="guide-section__title">import { randomUUID }</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Generates a unique ID like <code>a1b2c3d4-e5f6-...</code> for new sessions. Built into Node — no extra package.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Each conversation gets its own file; IDs must not collide.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="5" data-end="12">
+                                <summary><span class="guide-section__lines">Lines 5–12</span><span class="guide-section__title">The Message type</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Describes one entry in the conversation log:</p>
+                                    <ul>
+                                        <li><code>role</code> — who sent it: you, the model, a tool, or system instructions</li>
+                                        <li><code>content</code> — the text (or tool result) itself</li>
+                                        <li><code>timestamp</code> — when it was recorded (ISO string)</li>
+                                        <li><code>tool_call_id?</code> / <code>name?</code> — optional fields for tool messages later</li>
+                                        <li><code>[key: string]: any</code> — allows extra metadata without breaking the type</li>
+                                    </ul>
+                                    <div class="guide-why"><strong>Why:</strong> TypeScript catches mistakes like passing <code>role: 'human'</code> before you run the agent.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="14" data-end="17">
+                                <summary><span class="guide-section__lines">Lines 14–17</span><span class="guide-section__title">Class properties</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>id</code> — public and read-only; safe to show in logs. <code>filePath</code> — private; callers shouldn't pick arbitrary paths. <code>messages</code> — in-memory copy of the conversation for fast access during a run.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="19" data-end="22">
+                                <summary><span class="guide-section__lines">Lines 19–22</span><span class="guide-section__title">constructor</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>id ?? randomUUID()</code> — use the passed-in ID when resuming a session, otherwise generate a new one. <code>??</code> only falls back on <code>null</code>/<code>undefined</code>, not empty strings.</p>
+                                    <p><code>path.join(process.cwd(), 'sessions', ...)</code> — stores files in <code>./sessions/&lt;id&gt;.jsonl</code> relative to where you run the agent.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Durable path is decided once at construction — every message goes to the same file.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="24" data-end="24">
+                                <summary><span class="guide-section__lines">Line 24</span><span class="guide-section__title">addMessage signature</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>async</code> because writing to disk takes time. <code>meta</code> defaults to <code>{}</code> so callers can attach extra fields (like <code>tool_call_id</code>) without a separate parameter.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="25" data-end="30">
+                                <summary><span class="guide-section__lines">Lines 25–30</span><span class="guide-section__title">Build the message object</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Creates a plain object matching <code>Message</code>. <code>new Date().toISOString()</code> records exact time in UTC. <code>...meta</code> spreads optional fields on top — later keys in <code>meta</code> can override earlier ones if you pass duplicates.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="32" data-end="32">
+                                <summary><span class="guide-section__lines">Line 32</span><span class="guide-section__title">this.messages.push(msg)</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Updates in-memory history immediately so the rest of the harness can read it without hitting disk again.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="34" data-end="35">
+                                <summary><span class="guide-section__lines">Lines 34–35</span><span class="guide-section__title">Persist to disk</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>fs.mkdir(..., { recursive: true })</code> creates the <code>sessions/</code> folder if missing — won't error if it already exists.</p>
+                                    <p><code>fs.appendFile</code> adds one JSON line to the end of the file. Append-only means a crash mid-write only loses the last partial line, not the whole history.</p>
+                                    <div class="guide-why"><strong>Why JSONL:</strong> One JSON object per line. Easy to read, easy to append, easy to replay. This is your durable boundary.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="38" data-end="46">
+                                <summary><span class="guide-section__lines">Lines 38–46</span><span class="guide-section__title">load() — resume a session</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Reads the whole file, splits on newlines, parses each line back into a <code>Message</code>. Wrapped in <code>try/catch</code>: if the file doesn't exist yet (brand-new session), the catch runs and we leave <code>messages</code> as an empty array — that's intentional, not an error.</p>
+                                    <div class="guide-why"><strong>Why:</strong> After a restart, call <code>load()</code> before continuing so the agent remembers prior turns.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="48" data-end="50">
+                                <summary><span class="guide-section__lines">Lines 48–50</span><span class="guide-section__title">getHistory()</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Returns the messages array for the agent loop to send to the model. A method instead of reading <code>.messages</code> directly gives you a place to filter or transform history later (e.g. hide system snapshots from the UI).</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="highlight-box p-6 rounded-3xl mt-8">
+                    <strong>Checkpoint:</strong> You now have durable memory. Before Phase 2, create the file, type it in, and run <code>npm install</code> if you haven't. No red squiggles on <code>fs</code> or <code>process</code>? You're ready.
+                </div>
+            </div>
+
+            <nav class="lesson-nav" aria-label="Lesson navigation">
+                <a href="index.html#phase-0" class="lesson-nav__link lesson-nav__link--prev">← Mindset & Core Concepts</a>
+                <a href="phase-2.html" class="lesson-nav__link lesson-nav__link--next">Connecting to Grok →</a>
+            </nav>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>

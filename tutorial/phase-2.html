@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 02 — Connecting to Grok | Agent Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <header class="site-header">
+        <div class="site-header__inner max-w-screen-xl mx-auto">
+            <a href="index.html" class="site-header__brand">
+                <div>
+                    <h1 class="site-header__title heading-font">Agent Harness</h1>
+                    <p class="site-header__subtitle">TypeScript Edition</p>
+                </div>
+            </a>
+            <div class="site-header__actions">
+                <span class="site-header__badge">Phase 02 of 08</span>
+                <a href="index.html" class="site-header__cta">Table of Contents</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-screen-xl mx-auto px-6 pt-10 pb-20">
+        <!-- PHASE 2 -->
+        <div id="phase-2" class="mb-20 scroll-mt-20">
+            <div class="flex items-center gap-x-3 mb-6">
+                <div class="step-number bg-blue-600 text-white rounded-2xl text-sm">02</div>
+                <h2 class="text-4xl font-semibold tracking-tight">Connecting to Grok</h2>
+            </div>
+
+            <div class="prose-custom">
+                <p>Grok's API speaks the same shape as OpenAI's chat API. We use the official <code>openai</code> npm package and point it at xAI's URL.</p>
+
+                <h3 class="font-semibold text-2xl mt-8 mb-4">Step 1: Store your API key</h3>
+                <p>Create a <code>.env</code> file at the project root (same level as <code>package.json</code>). Add it to <code>.gitignore</code> so it never gets committed.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">.env</div>
+                            <pre class="language-bash"><code>XAI_API_KEY=your_key_here</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for .env">
+                        <div class="guide-header">
+                            <h4>Environment variable</h4>
+                            <p>Never paste API keys into source files.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">XAI_API_KEY=...</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>dotenv</code> (loaded in the next file) reads this and sets <code>process.env.XAI_API_KEY</code>. Replace <code>your_key_here</code> with your real key from xAI's developer portal.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Secrets in code end up in git history forever. Environment variables stay on your machine.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 2: Create the Grok agent wrapper</h3>
+                <p>Create <code>src/harness/agent.ts</code>. This class is a thin bridge between your harness and the model.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/agent.ts</div>
+                            <pre class="language-typescript"><code>import OpenAI from 'openai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+export class GrokAgent {
+  private client: OpenAI;
+  public model = 'grok-4.3';
+
+  constructor() {
+    this.client = new OpenAI({
+      apiKey: process.env.XAI_API_KEY,
+      baseURL: 'https://api.x.ai/v1',
+    });
+  }
+
+  async chat(messages: any[], tools: any[] = []) {
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages,
+      temperature: 0.7,
+      ...(tools.length > 0 ? { tools, tool_choice: 'auto' as const } : {}),
+    });
+    return response;
+  }
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for agent.ts">
+                        <div class="guide-header">
+                            <h4>Talking to the model</h4>
+                            <p>Each method here will be called from the agent loop in Phase 4.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">import OpenAI</span></summary>
+                                <div class="guide-section__body">
+                                    <p>The OpenAI SDK — also works for Grok because xAI copied the same request/response format.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="2" data-end="4">
+                                <summary><span class="guide-section__lines">Lines 2–4</span><span class="guide-section__title">Load environment variables</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>dotenv.config()</code> runs once when this module loads. It reads <code>.env</code> and populates <code>process.env</code> before the constructor reads the API key.</p>
+                                    <div class="guide-why"><strong>Why at top level:</strong> The key must exist before <code>new OpenAI({ apiKey: ... })</code> runs.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="6" data-end="8">
+                                <summary><span class="guide-section__lines">Lines 6–8</span><span class="guide-section__title">Class shell & model name</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>GrokAgent</code> is your harness's name for "the thing that calls the brain." <code>private client</code> hides the SDK instance — outside code calls <code>chat()</code>, not the raw client. <code>model</code> is public so you can change or log it easily.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="10" data-end="15">
+                                <summary><span class="guide-section__lines">Lines 10–15</span><span class="guide-section__title">Configure the client</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>apiKey</code> — from environment, never hard-coded. <code>baseURL: 'https://api.x.ai/v1'</code> — the only difference from a vanilla OpenAI setup; sends requests to Grok instead of OpenAI.</p>
+                                    <div class="guide-why"><strong>Why a wrapper class:</strong> Later you can swap models, add retries, or log token usage in one place.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="17" data-end="17">
+                                <summary><span class="guide-section__lines">Line 17</span><span class="guide-section__title">chat() parameters</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>messages</code> — the conversation history from your <code>Session</code>. <code>tools</code> defaults to <code>[]</code> for plain chat without tool calling (Phase 3 adds tools).</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="18" data-end="23">
+                                <summary><span class="guide-section__lines">Lines 18–23</span><span class="guide-section__title">The API call</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>model</code> — which Grok version to use. <code>messages</code> — full history the model sees. <code>temperature: 0.7</code> — some creativity, not totally random.</p>
+                                    <p>The spread <code>...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {})</code> only adds <code>tools</code> when you actually have tools. With <code>exactOptionalPropertyTypes</code>, passing <code>tools: undefined</code> would fail — omitting the property entirely is correct.</p>
+                                    <p><code>tool_choice: 'auto' as const</code> — tells TypeScript this is the literal string <code>'auto'</code>, not just any string. The model decides whether to call tools or reply in text.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="24" data-end="25">
+                                <summary><span class="guide-section__lines">Lines 24–25</span><span class="guide-section__title">return response</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Returns the full SDK response object. The agent loop (Phase 4) will read <code>response.choices[0].message</code> to see if the model wants to use tools or finished with text.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+            </div>
+
+            <nav class="lesson-nav" aria-label="Lesson navigation">
+                <a href="phase-1.html" class="lesson-nav__link lesson-nav__link--prev">← Project Setup & Durable Sessions</a>
+                <a href="phase-3.html" class="lesson-nav__link lesson-nav__link--next">Implementing Tools →</a>
+            </nav>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 06 — Safety, Permissions & Agent Profiles | Agent Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <header class="site-header">
+        <div class="site-header__inner max-w-screen-xl mx-auto">
+            <a href="index.html" class="site-header__brand">
+                <div>
+                    <h1 class="site-header__title heading-font">Agent Harness</h1>
+                    <p class="site-header__subtitle">TypeScript Edition</p>
+                </div>
+            </a>
+            <div class="site-header__actions">
+                <span class="site-header__badge">Phase 06 of 08</span>
+                <a href="index.html" class="site-header__cta">Table of Contents</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-screen-xl mx-auto px-6 pt-10 pb-20">
+        <!-- PHASE 6 -->
+        <div id="phase-6" class="mb-20 scroll-mt-20">
+            <div class="flex items-center gap-x-3 mb-6">
+                <div class="step-number bg-blue-600 text-white rounded-2xl text-sm">06</div>
+                <h2 class="text-4xl font-semibold tracking-tight">Safety, Permissions & Agent Profiles</h2>
+            </div>
+            <div class="prose-custom">
+                <div class="learn-banner">
+                    <span class="learn-banner__icon">💡</span>
+                    <div>
+                        <strong>How to use this lesson:</strong> Phases 1–5 gave you memory, tools, a loop, and snapshots. Phase 6 adds <strong>modes</strong> — the harness decides which tools exist and which system instructions apply. You will create <code>profiles.ts</code>, tighten <code>tools.ts</code> and <code>loop.ts</code>, and pick a profile from the terminal. Same sidebar pattern as before.
+                    </div>
+                </div>
+
+                <p>So far, one prompt told the model “be careful.” That is a <strong>guide</strong> (feedforward). Guides help, but models drift — especially under pressure. A real harness also installs <strong>sensors</strong>: code that blocks illegal actions even when the model insists.</p>
+
+                <p>This phase introduces <strong>agent profiles</strong>: named bundles of <code>systemPrompt</code> + <code>allowedTools</code>. Three built-in profiles:</p>
+                <ul>
+                    <li><strong>Planner</strong> — read-only exploration; outputs a plan, cannot write files.</li>
+                    <li><strong>Implementer</strong> — full file tools; the default “build it” mode from earlier phases.</li>
+                    <li><strong>Reviewer</strong> — read-only; structured feedback in the final answer, no edits.</li>
+                </ul>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <div class="font-semibold mb-2">Two enforcement layers (both required):</div>
+                    <ol class="list-decimal pl-5 space-y-2 text-sm">
+                        <li><strong>Schema layer</strong> — pass only allowed tool definitions into <code>agent.chat()</code>. If <code>write_file</code> is not in the list, the model should not receive it as an option.</li>
+                        <li><strong>Execution layer</strong> — in <code>executeTool()</code>, refuse to run a tool that is not allowed, and return a clear error string as the tool result. This catches hallucinated tool names or resumed sessions where history mentions tools that are no longer allowed.</li>
+                    </ol>
+                    <p class="mt-3 text-sm text-slate-600">OpenCode’s permission rulesets do more (ask/deny/merge, per-path patterns). You are learning the core idea: <strong>the harness enforces boundaries, not the model.</strong></p>
+                </div>
+
+                <div class="my-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl text-sm">
+                    <strong>Prerequisites:</strong> Phase 5 complete — <code>toApiMessages</code> filters <code>hidden</code> messages, <code>recordTurnSnapshot</code> runs before each <code>chat()</code>. You will add <code>src/harness/profiles.ts</code> and edit <code>tools.ts</code>, <code>loop.ts</code>, and <code>main.ts</code>.
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-8 mb-4">Step 1: Create <code>src/harness/profiles.ts</code></h3>
+                <p>Profiles are data, not magic. Each profile is a small object your loop and CLI can pass around.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/profiles.ts — type &amp; registry</div>
+                            <pre class="language-typescript"><code>export type AgentProfile = {
+  id: string;
+  label: string;
+  systemPrompt: string;
+  allowedTools: string[];
+};
+
+export type ProfileId = 'planner' | 'implementer' | 'reviewer';
+
+export const PROFILES: Record&lt;ProfileId, AgentProfile&gt; = {
+  planner: {
+    id: 'planner',
+    label: 'Planner (read-only)',
+    systemPrompt:
+      'You are in PLANNER mode. Use list_files and read_file to explore. ' +
+      'Do not claim you edited or wrote files. Output a numbered plan the user can approve. Be concise.',
+    allowedTools: ['read_file', 'list_files'],
+  },
+  implementer: {
+    id: 'implementer',
+    label: 'Implementer (read + write)',
+    systemPrompt:
+      'You are in IMPLEMENTER mode. Explore with list_files and read_file before editing. ' +
+      'Use write_file for changes. Summarize what you changed and how the user can verify (e.g. run tests).',
+    allowedTools: ['read_file', 'write_file', 'list_files'],
+  },
+  reviewer: {
+    id: 'reviewer',
+    label: 'Reviewer (read-only feedback)',
+    systemPrompt:
+      'You are in REVIEWER mode. Read and list files only — never write. ' +
+      'Reply with structured feedback: brief summary, issues by severity (high/medium/low), and suggested fixes.',
+    allowedTools: ['read_file', 'list_files'],
+  },
+};
+
+export const DEFAULT_PROFILE_ID: ProfileId = 'implementer';</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for profiles registry">
+                        <div class="guide-header">
+                            <h4>Named modes</h4>
+                            <p>Same tools file, different contracts.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="6" open>
+                                <summary><span class="guide-section__lines">Lines 1–6</span><span class="guide-section__title">AgentProfile shape</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>id</code> — stable key for logs and env vars. <code>label</code> — human-readable name for the CLI. <code>systemPrompt</code> — mode-specific instructions stored as the session system message. <code>allowedTools</code> — tool <em>names</em> that match your Phase 3 schemas.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="8" data-end="8">
+                                <summary><span class="guide-section__lines">Line 8</span><span class="guide-section__title">ProfileId union</span></summary>
+                                <div class="guide-section__body">
+                                    <p>TypeScript narrows valid IDs at compile time. Adding a profile later means updating this union and <code>PROFILES</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="10" data-end="35">
+                                <summary><span class="guide-section__lines">Lines 10–35</span><span class="guide-section__title">Three profiles</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Planner and reviewer share the same tool list but different prompts — same hands, different job description. Implementer is the only profile with <code>write_file</code>.</p>
+                                    <div class="guide-why"><strong>Why not one giant prompt?</strong> Research harnesses treat plan/build/review as different risk levels. Prompt-only “plan mode” leaks; denying <code>write_file</code> at the registry does not.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="37" data-end="37">
+                                <summary><span class="guide-section__lines">Line 37</span><span class="guide-section__title">Default</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Matches what readers used in Phases 4–5 — full tool access unless they opt into a safer mode.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-6">Add helpers below the registry in the same file:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/profiles.ts — resolve &amp; lookup</div>
+                            <pre class="language-typescript"><code>export function getProfile(id: ProfileId): AgentProfile {
+  return PROFILES[id];
+}
+
+export function resolveProfileId(raw?: string): ProfileId {
+  const key = (raw ?? DEFAULT_PROFILE_ID).trim().toLowerCase();
+  if (key in PROFILES) {
+    return key as ProfileId;
+  }
+  const choices = Object.keys(PROFILES).join(', ');
+  throw new Error(`Unknown profile "${raw}". Choose: ${choices}`);
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for profile helpers">
+                        <div class="guide-header">
+                            <h4>CLI → profile object</h4>
+                            <p>Parse user input once at startup.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="3" open>
+                                <summary><span class="guide-section__lines">Lines 1–3</span><span class="guide-section__title">getProfile</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Thin lookup — keeps <code>main.ts</code> readable and makes testing easy later.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="5" data-end="12">
+                                <summary><span class="guide-section__lines">Lines 5–12</span><span class="guide-section__title">resolveProfileId</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Reads <code>process.env.AGENT_PROFILE</code> (wired in Step 5). Lowercases so <code>Planner</code> and <code>planner</code> both work. Throws with a helpful list if someone typos <code>planer</code>.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 2: Filter schemas and guard execution in <code>tools.ts</code></h3>
+                <p>Open <code>src/harness/tools.ts</code>. Keep <code>TOOLS</code> as the full catalog. Add functions that slice it per profile and block disallowed runs.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/tools.ts — after TOOLS array</div>
+                            <pre class="language-typescript"><code>export function getToolSchemas(allowedTools: string[]) {
+  const allowed = new Set(allowedTools);
+  return TOOLS.filter((t) =&gt; allowed.has(t.function.name));
+}
+
+export function isToolAllowed(name: string, allowedTools: string[]): boolean {
+  return allowedTools.includes(name);
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for getToolSchemas">
+                        <div class="guide-header">
+                            <h4>Schema layer</h4>
+                            <p>What the model is allowed to <em>request</em>.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="4" open>
+                                <summary><span class="guide-section__lines">Lines 1–4</span><span class="guide-section__title">getToolSchemas</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Returns a new array — does not mutate <code>TOOLS</code>. Planner gets two schemas; implementer gets all three. Pass this result to <code>agent.chat()</code> instead of the full <code>TOOLS</code> constant.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="6" data-end="8">
+                                <summary><span class="guide-section__lines">Lines 6–8</span><span class="guide-section__title">isToolAllowed</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Single place for the allow-list check. Used right before filesystem work runs.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-6"><strong>Change</strong> <code>executeTool</code> — add a third parameter and guard at the top:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/tools.ts — executeTool signature &amp; guard</div>
+                            <pre class="language-typescript"><code>export async function executeTool(
+  name: string,
+  argsJson: string,
+  allowedTools: string[],
+): Promise&lt;string&gt; {
+  if (!isToolAllowed(name, allowedTools)) {
+    return (
+      `Permission denied: profile does not allow "${name}". ` +
+      `Allowed tools: ${allowedTools.join(', ')}`
+    );
+  }
+
+  let args: Record&lt;string, unknown&gt;;
+  try {
+    args = JSON.parse(argsJson);
+  } catch {
+    return `Invalid tool arguments JSON: ${argsJson}`;
+  }
+
+  // … existing switch (read_file, write_file, list_files) unchanged …
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for executeTool guard">
+                        <div class="guide-header">
+                            <h4>Execution layer</h4>
+                            <p>Return an error string, do not throw — the loop keeps going.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="12" open>
+                                <summary><span class="guide-section__lines">Lines 1–12</span><span class="guide-section__title">Permission check first</span></summary>
+                                <div class="guide-section__body">
+                                    <p>The model sees this text as a normal tool result on the next turn — same pattern as sandbox errors in Phase 3. It can adjust (e.g. stop trying <code>write_file</code> in planner mode).</p>
+                                    <div class="guide-why"><strong>Why:</strong> Phase 7 will log denials; for now the message is enough proof the harness blocked the call.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="my-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl text-sm">
+                    <strong>If you have <code>src/smoke-tools.ts</code> from Phase 3:</strong> Update calls to <code>executeTool(name, args, ['read_file', 'write_file', 'list_files'])</code> so the third argument matches the new signature.
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 3: Thread the profile through <code>loop.ts</code></h3>
+                <p>The loop must (1) snapshot the active profile, (2) send filtered tool schemas to the model, and (3) pass <code>allowedTools</code> into <code>executeTool</code>.</p>
+
+                <p><strong>3a — imports.</strong> At the top of <code>loop.ts</code>, add:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — imports</div>
+                            <pre class="language-typescript"><code>import type { AgentProfile } from './profiles.js';
+import { getToolSchemas, executeTool } from './tools.js';</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for loop imports">
+                        <div class="guide-header">
+                            <h4>Replace tools import</h4>
+                            <p>Stop importing bare <code>TOOLS</code> in the loop if you no longer use it here.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="2" open>
+                                <summary><span class="guide-section__lines">Lines 1–2</span><span class="guide-section__title">Profile type + helpers</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>getToolSchemas</code> replaces direct <code>TOOLS</code> usage inside <code>runTurn</code>. <code>executeTool</code> still comes from <code>tools.ts</code>.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-6"><strong>3b — snapshots include profile.</strong> Update <code>TurnSnapshot</code> and <code>recordTurnSnapshot</code> from Phase 5:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — snapshot with profileId</div>
+                            <pre class="language-typescript"><code>type TurnSnapshot = {
+  step: number;
+  profileId: string;
+  messageCount: number;
+  toolsAvailable: string[];
+  workingDir: string;
+  timestamp: string;
+};
+
+async function recordTurnSnapshot(
+  session: Session,
+  step: number,
+  profile: AgentProfile,
+): Promise&lt;void&gt; {
+  const toolSchemas = getToolSchemas(profile.allowedTools);
+  const snapshot: TurnSnapshot = {
+    step,
+    profileId: profile.id,
+    messageCount: session.getHistory().length,
+    toolsAvailable: toolSchemas.map((t) =&gt; t.function.name),
+    workingDir: process.cwd(),
+    timestamp: new Date().toISOString(),
+  };
+
+  await session.addMessage(
+    'system',
+    `TURN SNAPSHOT: ${JSON.stringify(snapshot)}`,
+    { hidden: true },
+  );
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for profile snapshot">
+                        <div class="guide-header">
+                            <h4>Snapshots match reality</h4>
+                            <p><code>toolsAvailable</code> should reflect the profile, not the full catalog.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="8" open>
+                                <summary><span class="guide-section__lines">Lines 1–8</span><span class="guide-section__title">profileId field</span></summary>
+                                <div class="guide-section__body">
+                                    <p>When debugging “why did it try to write?”, grep snapshots — if <code>profileId</code> is <code>planner</code> and <code>toolsAvailable</code> omits <code>write_file</code>, the harness did its job and the model may be confabulating past edits.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="15" data-end="16">
+                                <summary><span class="guide-section__lines">Lines 15–16</span><span class="guide-section__title">Filtered tool names</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Uses <code>getToolSchemas(profile.allowedTools)</code> — same list you will pass to <code>chat()</code> on that step.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-6"><strong>3c — <code>runTurn</code> takes a profile.</strong> Add a fourth parameter and use it inside the loop:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — runTurn signature &amp; loop body (key lines)</div>
+                            <pre class="language-typescript"><code>export async function runTurn(
+  session: Session,
+  agent: GrokAgent,
+  userInput: string,
+  profile: AgentProfile,
+): Promise&lt;string&gt; {
+  const toolSchemas = getToolSchemas(profile.allowedTools);
+
+  await session.addMessage('user', userInput);
+
+  for (let step = 0; step &lt; MAX_ITERATIONS; step++) {
+    await recordTurnSnapshot(session, step, profile);
+
+    const response = await agent.chat(
+      toApiMessages(session.getHistory()),
+      toolSchemas,
+    );
+    const message = response.choices[0]?.message;
+
+    if (!message) {
+      throw new Error('Model returned no message');
+    }
+
+    const toolCalls = message.tool_calls ?? [];
+
+    if (toolCalls.length &gt; 0) {
+      await session.addMessage('assistant', message.content ?? '', {
+        tool_calls: toolCalls,
+      });
+
+      for (const toolCall of toolCalls) {
+        if (toolCall.type !== 'function') continue;
+        const fn = toolCall.function;
+        console.log(`  tool → ${fn.name}`);
+        const result = await executeTool(
+          fn.name,
+          fn.arguments,
+          profile.allowedTools,
+        );
+        await session.addMessage('tool', result, {
+          tool_call_id: toolCall.id,
+          name: fn.name,
+        });
+      }
+      continue;
+    }
+
+    const text = message.content ?? '';
+    await session.addMessage('assistant', text);
+    return text;
+  }
+
+  throw new Error(`Agent loop exceeded ${MAX_ITERATIONS} iterations`);
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for runTurn profile">
+                        <div class="guide-header">
+                            <h4>One profile per process run</h4>
+                            <p>Same profile for every user line in this CLI session.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="5" data-end="6" open>
+                                <summary><span class="guide-section__lines">Lines 5–6</span><span class="guide-section__title">toolSchemas once per turn</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Computed at the start of <code>runTurn</code>. If you later allow mid-session profile switches, recompute inside the loop each step.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="11" data-end="16">
+                                <summary><span class="guide-section__lines">Lines 11–16</span><span class="guide-section__title">Snapshot + chat</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>recordTurnSnapshot(session, step, profile)</code> then <code>chat(..., toolSchemas)</code> — the model only sees allowed tools for this profile.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="33" data-end="37">
+                                <summary><span class="guide-section__lines">Lines 33–37</span><span class="guide-section__title">executeTool with allow-list</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Third argument is <code>profile.allowedTools</code> — execution guard matches schema layer.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 4: Pick a profile in <code>main.ts</code></h3>
+                <p>Replace the hard-coded <code>SYSTEM_PROMPT</code> with the active profile’s prompt. Read the profile from an environment variable so you can switch modes without editing code.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/main.ts — profile-aware CLI</div>
+                            <pre class="language-typescript"><code>import readline from 'readline/promises';
+import { stdin as input, stdout as output } from 'process';
+import { GrokAgent } from './harness/agent.js';
+import { Session } from './harness/session.js';
+import { runTurn } from './harness/loop.js';
+import { resolveProfileId, getProfile } from './harness/profiles.js';
+
+async function main() {
+  const profileId = resolveProfileId(process.env.AGENT_PROFILE);
+  const profile = getProfile(profileId);
+
+  const session = new Session();
+  await session.load();
+  const agent = new GrokAgent();
+
+  if (session.getHistory().length === 0) {
+    await session.addMessage('system', profile.systemPrompt);
+  }
+
+  console.log(`Session ${session.id}`);
+  console.log(`Profile: ${profile.label}`);
+  console.log(`Allowed tools: ${profile.allowedTools.join(', ')}`);
+  console.log('Empty line to quit\n');
+
+  const rl = readline.createInterface({ input, output });
+
+  while (true) {
+    const line = await rl.question('&gt; ');
+    if (!line.trim()) break;
+
+    console.log('\n… agent working …\n');
+    try {
+      const reply = await runTurn(session, agent, line, profile);
+      console.log(`\n${reply}\n`);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  rl.close();
+}
+
+main().catch(console.error);</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for main profile">
+                        <div class="guide-header">
+                            <h4>Mode at startup</h4>
+                            <p>System prompt is chosen once per empty session.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="6" data-end="7" open>
+                                <summary><span class="guide-section__lines">Lines 6–7</span><span class="guide-section__title">resolveProfileId</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>AGENT_PROFILE=planner npm start</code> sets the mode. Unset env → implementer (default).</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="13" data-end="15">
+                                <summary><span class="guide-section__lines">Lines 13–15</span><span class="guide-section__title">Profile system message</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Only when history is empty — same rule as Phase 4. <strong>Tip:</strong> use a <em>new</em> session file when switching profiles on disk; old JSONL may contain tool results from a different mode.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="17" data-end="19">
+                                <summary><span class="guide-section__lines">Lines 17–19</span><span class="guide-section__title">Startup banner</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Confirms which tools the harness will expose — you should see two tools for planner/reviewer and three for implementer.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="28" data-end="28">
+                                <summary><span class="guide-section__lines">Line 28</span><span class="guide-section__title">runTurn(..., profile)</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Fourth argument threads the profile through the whole turn.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 5: Run each profile — prove enforcement works</h3>
+                <p>Use a <strong>fresh session</strong> for each test (delete or rename old <code>sessions/*.jsonl</code>, or note the new UUID printed at startup).</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">Terminal — three modes</div>
+                            <pre class="language-bash"><code># Default: implementer (read + write)
+npm start
+
+# Planner: should never call write_file
+AGENT_PROFILE=planner npm start
+# Try: "Read package.json and write a plan to improve scripts — do not edit files yet."
+
+# Reviewer: feedback only
+AGENT_PROFILE=reviewer npm start
+# Try: "Review src/harness/loop.ts for clarity and safety. Do not modify any files."
+
+# Type check
+npx tsc --noEmit</code></pre>
+                        </div>
+                        <div class="code-block mt-4">
+                            <div class="code-block__header">Optional — force a denial (advanced check)</div>
+                            <pre class="language-typescript"><code>// In smoke-tools.ts or a one-off script:
+import { executeTool } from './harness/tools.js';
+
+const out = await executeTool(
+  'write_file',
+  '{"path":"blocked.txt","content":"nope"}',
+  ['read_file', 'list_files'],
+);
+console.log(out);
+// Expect: Permission denied: profile does not allow "write_file". ...</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for testing profiles">
+                        <div class="guide-header">
+                            <h4>What success looks like</h4>
+                            <p>Behavior differs by mode; the loop still completes.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="4" open>
+                                <summary><span class="guide-section__lines">implementer</span><span class="guide-section__title">Full agent</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Same as Phase 5 — can list, read, and write. Banner shows three allowed tools.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="6" data-end="8">
+                                <summary><span class="guide-section__lines">planner</span><span class="guide-section__title">Read-only plan</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Terminal shows only <code>read_file</code> and <code>list_files</code> in the banner. JSONL snapshots should list the same in <code>toolsAvailable</code>. Final answer should be a plan, not “I wrote file X.”</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="10" data-end="12">
+                                <summary><span class="guide-section__lines">reviewer</span><span class="guide-section__title">Structured review</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Reads code, returns severity-grouped feedback. No <code>tool → write_file</code> lines.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="14" data-end="14">
+                                <summary><span class="guide-section__lines">tsc</span><span class="guide-section__title">Troubleshooting</span></summary>
+                                <div class="guide-section__body">
+                                    <ul>
+                                        <li><strong>Expected 3 arguments, but got 2</strong> — every <code>executeTool</code> call needs <code>profile.allowedTools</code> (or an explicit array in smoke tests).</li>
+                                        <li><strong>Planner still writes files</strong> — check you pass <code>toolSchemas</code> to <code>chat()</code>, not full <code>TOOLS</code>.</li>
+                                        <li><strong>Wrong prompt after switching profile</strong> — old session still has the previous system message; start a new session file.</li>
+                                        <li><strong>Unknown profile error</strong> — typo in <code>AGENT_PROFILE</code>; must be <code>planner</code>, <code>implementer</code>, or <code>reviewer</code>.</li>
+                                    </ul>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <strong>Files touched in Phase 6:</strong>
+                    <ul class="mt-3 space-y-1 text-sm list-disc pl-5 font-mono">
+                        <li>src/harness/profiles.ts — <span class="font-sans">new</span></li>
+                        <li>src/harness/tools.ts — getToolSchemas, isToolAllowed, executeTool guard</li>
+                        <li>src/harness/loop.ts — profile param, filtered chat tools, snapshot profileId</li>
+                        <li>src/main.ts — AGENT_PROFILE, profile system prompt, runTurn(..., profile)</li>
+                    </ul>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl mt-4">
+                    <strong>What you are <em>not</em> building yet (on purpose):</strong>
+                    <ul class="mt-3 space-y-2 text-sm list-disc pl-5">
+                        <li><strong>Interactive “ask before write”</strong> — OpenCode pauses and waits for human approval. You hard-deny or hard-allow per profile instead.</li>
+                        <li><strong>Per-path rules</strong> — e.g. “allow edits only under <code>src/</code>”. Phase 3’s workspace sandbox is still your path safety net.</li>
+                        <li><strong>Separate models per profile</strong> — same Grok model for all three; only tools and prompts differ.</li>
+                        <li><strong>Automated test runner</strong> — implementer prompt <em>suggests</em> verification; Phase 8 points to real CI hooks.</li>
+                    </ul>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <strong>When should you stop and test?</strong>
+                    <ul class="mt-3 space-y-2 text-sm list-disc pl-5">
+                        <li><strong>After Step 2:</strong> Run a quick <code>executeTool</code> denial script or <code>tsc --noEmit</code>.</li>
+                        <li><strong>After Step 5:</strong> Run all three <code>AGENT_PROFILE</code> values with the sample prompts above.</li>
+                        <li><strong>After Phase 7:</strong> Structured logging for tool calls and permission denials.</li>
+                    </ul>
+                </div>
+
+                <div class="highlight-box p-6 rounded-3xl mt-6">
+                    <strong>Checkpoint:</strong> Your harness now has <strong>agent profiles</strong> — different prompts and tool allow-lists, enforced at both the API schema layer and <code>executeTool</code>. That is real safety engineering, not wishful prompting. Phase 7 adds observability so you can see every tool call and denial clearly in the terminal and logs.
+                </div>
+            </div>
+
+            <nav class="lesson-nav" aria-label="Lesson navigation">
+                <a href="phase-5.html" class="lesson-nav__link lesson-nav__link--prev">← Context Management & Turn Snapshots</a>
+                <a href="phase-7.html" class="lesson-nav__link lesson-nav__link--next">Observability & Iteration →</a>
+            </nav>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>

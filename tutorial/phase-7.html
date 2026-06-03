@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 07 — Observability & Iteration | Agent Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <header class="site-header">
+        <div class="site-header__inner max-w-screen-xl mx-auto">
+            <a href="index.html" class="site-header__brand">
+                <div>
+                    <h1 class="site-header__title heading-font">Agent Harness</h1>
+                    <p class="site-header__subtitle">TypeScript Edition</p>
+                </div>
+            </a>
+            <div class="site-header__actions">
+                <span class="site-header__badge">Phase 07 of 08</span>
+                <a href="index.html" class="site-header__cta">Table of Contents</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-screen-xl mx-auto px-6 pt-10 pb-20">
+        <!-- PHASE 7 -->
+        <div id="phase-7" class="mb-20 scroll-mt-20">
+            <div class="flex items-center gap-x-3 mb-6">
+                <div class="step-number bg-blue-600 text-white rounded-2xl text-sm">07</div>
+                <h2 class="text-4xl font-semibold tracking-tight">Observability & Iteration</h2>
+            </div>
+            <div class="prose-custom">
+                <div class="learn-banner">
+                    <span class="learn-banner__icon">💡</span>
+                    <div>
+                        <strong>How to use this lesson:</strong> Phases 1–6 gave you memory, tools, a loop, snapshots, and profiles. Phase 7 adds the harness <strong>eyes</strong> — structured logs you can read while the agent runs and after it fails. You will create <code>logger.ts</code>, thread a <code>HarnessLogger</code> through <code>loop.ts</code> and <code>main.ts</code>, and learn a simple iterate-from-logs workflow.
+                    </div>
+                </div>
+
+                <p>Until now, debugging meant squinting at scattered <code>console.log</code> lines and opening <code>sessions/*.jsonl</code>. That works once, but it does not scale. When a turn fails — max iterations, permission denial, mystery tool loop — you need answers fast:</p>
+                <ul>
+                    <li>How many model steps did this user message take?</li>
+                    <li>Which tools ran, for how long, and did any get denied?</li>
+                    <li>How many tokens did each model call cost?</li>
+                    <li>Did the turn end cleanly or throw?</li>
+                </ul>
+
+                <p><strong>Observability</strong> means the harness records those facts in a consistent shape. <strong>Iteration</strong> means you change prompts, tools, or profiles based on evidence — not vibes.</p>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <div class="font-semibold mb-2">Two logs, two jobs (keep both):</div>
+                    <ul class="space-y-2 text-sm list-disc pl-5">
+                        <li><strong><code>sessions/&lt;id&gt;.jsonl</code></strong> (Phase 1) — conversation the model sees (plus hidden snapshots). For replaying chat history.</li>
+                        <li><strong><code>logs/&lt;id&gt;.jsonl</code></strong> (this phase) — harness events only. For performance, cost, and debugging harness behavior.</li>
+                    </ul>
+                    <p class="mt-3 text-sm text-slate-600">Do not stuff harness metrics into chat messages. Phase 5 taught you to keep model context lean; observability stays on the side.</p>
+                </div>
+
+                <div class="my-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl text-sm">
+                    <strong>Prerequisites:</strong> Phase 6 complete — profiles, <code>getToolSchemas</code>, permission denials from <code>executeTool</code>. Your <code>main.ts</code> should use <code>profile.systemPrompt</code> (not a leftover hard-coded <code>SYSTEM_PROMPT</code> from Phase 4).
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-8 mb-4">Step 1: Ignore log files in git</h3>
+                <p>Add a <code>logs/</code> folder to <code>.gitignore</code> next to <code>sessions/</code>. Log files are local debugging artifacts, like session transcripts.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">.gitignore — append</div>
+                            <pre class="language-bash"><code>sessions/
+logs/
+.env</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for gitignore logs">
+                        <div class="guide-header">
+                            <h4>Local only</h4>
+                            <p>Runtime folders, not source code.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="3" open>
+                                <summary><span class="guide-section__lines">Lines 1–3</span><span class="guide-section__title">logs/</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Node creates <code>logs/</code> on first write. Ignoring the whole directory avoids accidental commits of prompts, file paths, and token counts.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 2: Create <code>src/harness/logger.ts</code></h3>
+                <p>A tiny <strong>structured event logger</strong>: one JSON object per line, human-readable prefix in the terminal, same pattern as session JSONL.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/logger.ts — preview helper &amp; class</div>
+                            <pre class="language-typescript"><code>import fs from 'fs/promises';
+import path from 'path';
+
+/** Shorten tool results for logs — avoid dumping whole files. */
+export function preview(text: string, max = 120): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length &lt;= max ? oneLine : `${oneLine.slice(0, max)}…`;
+}
+
+export class HarnessLogger {
+  private readonly logPath: string;
+
+  constructor(sessionId: string) {
+    this.logPath = path.join(process.cwd(), 'logs', `${sessionId}.jsonl`);
+  }
+
+  async event(kind: string, fields: Record&lt;string, unknown&gt; = {}): Promise&lt;void&gt; {
+    const record = {
+      ts: new Date().toISOString(),
+      kind,
+      ...fields,
+    };
+
+    console.log(this.formatConsole(record));
+    await fs.mkdir(path.dirname(this.logPath), { recursive: true });
+    await fs.appendFile(this.logPath, JSON.stringify(record) + '\n');
+  }
+
+  private formatConsole(record: Record&lt;string, unknown&gt;): string {
+    const { ts, kind, ...rest } = record;
+    const parts = Object.entries(rest).map(
+      ([key, value]) =&gt; `${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`,
+    );
+    return `[harness] ${kind}${parts.length ? ' ' + parts.join(' ') : ''}`;
+  }
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for HarnessLogger">
+                        <div class="guide-header">
+                            <h4>One event API</h4>
+                            <p>Call <code>logger.event('tool', { … })</code> everywhere you care about.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="6" open>
+                                <summary><span class="guide-section__lines">Lines 1–6</span><span class="guide-section__title">preview()</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Tool results can be huge (entire source files). Logs store a <em>preview</em> only. Full content stays in <code>sessions/</code> for the model.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="8" data-end="12">
+                                <summary><span class="guide-section__lines">Lines 8–12</span><span class="guide-section__title">Constructor</span></summary>
+                                <div class="guide-section__body">
+                                    <p>One log file per session ID — easy to correlate with <code>sessions/&lt;same-id&gt;.jsonl</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="14" data-end="22">
+                                <summary><span class="guide-section__lines">Lines 14–22</span><span class="guide-section__title">event()</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>kind</code> is a short string you will grep later (<code>model_step</code>, <code>tool</code>, <code>turn_end</code>). <code>fields</code> holds numbers and strings — keep values JSON-serializable.</p>
+                                    <div class="guide-why"><strong>Why structured:</strong> Production harnesses export to OpenTelemetry or Datadog; JSONL is the beginner-friendly version of the same idea.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="24" data-end="30">
+                                <summary><span class="guide-section__lines">Lines 24–30</span><span class="guide-section__title">formatConsole</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Terminal lines look like <code>[harness] tool step=1 name=read_file durationMs=12 denied=false</code> — scannable while the agent runs.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 3: Event kinds you will emit</h3>
+                <p>Before wiring the loop, agree on a small vocabulary. You do not need dozens of event types — five cover most debugging:</p>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl text-sm">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="border-b"><th class="py-2 pr-4">kind</th><th class="py-2">When</th><th class="py-2">Key fields</th></tr>
+                        </thead>
+                        <tbody class="font-mono text-xs">
+                            <tr class="border-b border-slate-100"><td class="py-2 pr-4">turn_start</td><td class="py-2 font-sans">User submitted a line</td><td class="py-2">profileId, inputChars</td></tr>
+                            <tr class="border-b border-slate-100"><td class="py-2 pr-4">model_step</td><td class="py-2 font-sans">After each <code>agent.chat()</code></td><td class="py-2">step, durationMs, promptTokens, completionTokens, toolCallCount</td></tr>
+                            <tr class="border-b border-slate-100"><td class="py-2 pr-4">tool</td><td class="py-2 font-sans">After each <code>executeTool()</code></td><td class="py-2">step, name, durationMs, denied, resultPreview</td></tr>
+                            <tr class="border-b border-slate-100"><td class="py-2 pr-4">turn_end</td><td class="py-2 font-sans">Turn finished OK</td><td class="py-2">durationMs, loopSteps, status: 'ok'</td></tr>
+                            <tr><td class="py-2 pr-4">turn_error</td><td class="py-2 font-sans">Turn threw</td><td class="py-2">durationMs, message, status: 'error'</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 4: Instrument <code>loop.ts</code></h3>
+                <p>Add imports and pass <code>logger</code> into <code>runTurn</code>. Replace ad-hoc <code>console.log</code> lines from Phase 5 (optional <code>step → model</code> / <code>tool →</code>) with structured events — one place to look when something breaks.</p>
+
+                <p><strong>4a — imports and signature:</strong></p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — top of file</div>
+                            <pre class="language-typescript"><code>import { HarnessLogger, preview } from './logger.js';</code></pre>
+                        </div>
+                        <div class="code-block mt-4">
+                            <div class="code-block__header">runTurn — add logger parameter</div>
+                            <pre class="language-typescript"><code>export async function runTurn(
+  session: Session,
+  agent: GrokAgent,
+  userInput: string,
+  profile: AgentProfile,
+  logger: HarnessLogger,
+): Promise&lt;string&gt; {</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for loop logger param">
+                        <div class="guide-header">
+                            <h4>Dependency injection</h4>
+                            <p>The loop does not construct the logger — <code>main.ts</code> does, once per session.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">logger param</span><span class="guide-section__title">Fifth argument</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Keeps <code>runTurn</code> testable later (you could pass a mock logger). Same session ID as the JSONL session file.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-6"><strong>4b — log each model step</strong> (inside the <code>for</code> loop, immediately after <code>agent.chat()</code>):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — after agent.chat()</div>
+                            <pre class="language-typescript"><code>    const modelStarted = Date.now();
+    const response = await agent.chat(
+      toApiMessages(session.getHistory()),
+      toolSchemas,
+    );
+    const message = response.choices[0]?.message;
+
+    if (!message) {
+      throw new Error('Model returned no message');
+    }
+
+    const toolCalls = message.tool_calls ?? [];
+    const usage = response.usage;
+
+    await logger.event('model_step', {
+      step,
+      profileId: profile.id,
+      durationMs: Date.now() - modelStarted,
+      promptTokens: usage?.prompt_tokens,
+      completionTokens: usage?.completion_tokens,
+      totalTokens: usage?.total_tokens,
+      toolCallCount: toolCalls.length,
+    });</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for model_step">
+                        <div class="guide-header">
+                            <h4>Token usage</h4>
+                            <p>The OpenAI-compatible API returns <code>usage</code> on the completion object.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="8" open>
+                                <summary><span class="guide-section__lines">Lines 1–8</span><span class="guide-section__title">Timing</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>Date.now()</code> around the API call gives wall-clock latency — useful when the model feels slow vs when tools are slow.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="17" data-end="26">
+                                <summary><span class="guide-section__lines">Lines 17–26</span><span class="guide-section__title">usage fields</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Optional chaining — some responses omit usage. Sum <code>totalTokens</code> across a turn to spot expensive prompts or runaway loops.</p>
+                                    <div class="guide-why"><strong>Why log tokens:</strong> Harness engineering treats cost and context size as first-class metrics, not billing afterthoughts.</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="25" data-end="25">
+                                <summary><span class="guide-section__lines">toolCallCount</span><span class="guide-section__title">Decision signal</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>0</code> means the model returned final text this step. <code>&gt;0</code> means more tool rounds coming — if this stays high for 25 steps, you hit <code>MAX_ITERATIONS</code>.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-6"><strong>4c — log each tool execution</strong> (inside the tool <code>for</code> loop):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — tool logging</div>
+                            <pre class="language-typescript"><code>        const toolStarted = Date.now();
+        const result = await executeTool(
+          fn.name,
+          fn.arguments,
+          profile.allowedTools,
+        );
+        const denied = result.startsWith('Permission denied');
+
+        await logger.event('tool', {
+          step,
+          name: fn.name,
+          durationMs: Date.now() - toolStarted,
+          denied,
+          resultPreview: preview(result),
+        });</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for tool logging">
+                        <div class="guide-header">
+                            <h4>Permission denials visible</h4>
+                            <p>Phase 6 safety shows up as <code>denied=true</code> in logs.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="12" open>
+                                <summary><span class="guide-section__lines">Lines 1–12</span><span class="guide-section__title">denied flag</span></summary>
+                                <div class="guide-section__body">
+                                    <p>String match on the Phase 6 error prefix is enough for this tutorial. Later you might return structured error codes from <code>executeTool</code>.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-6"><strong>4d — log successful turn completion</strong> (right before <code>return text</code> when the model returns final text):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — before return text</div>
+                            <pre class="language-typescript"><code>    const text = message.content ?? '';
+    await session.addMessage('assistant', text);
+
+    await logger.event('turn_end', {
+      profileId: profile.id,
+      loopSteps: step + 1,
+      status: 'ok',
+    });
+
+    return text;</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for turn_end in loop">
+                        <div class="guide-header">
+                            <h4>Loop-level summary</h4>
+                            <p><code>loopSteps</code> counts model calls used for the answer.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="4" data-end="8" open>
+                                <summary><span class="guide-section__lines">Lines 4–8</span><span class="guide-section__title">turn_end inside runTurn</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>main.ts</code> will also log wall-clock <code>durationMs</code> for the whole user line (including all tools). Both are useful: inner = loop shape, outer = user-perceived wait.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="my-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl text-sm">
+                    <strong>Remove or replace</strong> Phase 5 optional lines like <code>console.log(`  step ${step} → model`)</code> and <code>console.log(`  tool → ${fn.name}`)</code> — <code>[harness]</code> lines supersede them.
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 5: Wrap turns in <code>main.ts</code></h3>
+                <p>Create one <code>HarnessLogger</code> per session. Log <code>turn_start</code> / <code>turn_error</code> around <code>runTurn</code> so failures are never silent.</p>
+                <p><strong>Two edits</strong> — do not delete the REPL lines that define <code>line</code>. Phase 4’s loop starts with <code>const line = await rl.question('&gt; ')</code>; Phase 7 wraps everything <em>after</em> that (through the old <code>try/catch</code>) with logging.</p>
+
+                <p><strong>5a —</strong> Add the import at the top of <code>main.ts</code> and create the logger after <code>session.load()</code>:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/main.ts — import &amp; logger instance</div>
+                            <pre class="language-typescript"><code>import { HarnessLogger } from './harness/logger.js';
+
+// … inside main(), after await session.load() …
+  const logger = new HarnessLogger(session.id);</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for logger instance">
+                        <div class="guide-header">
+                            <h4>One logger per session</h4>
+                            <p>Same session ID as <code>sessions/</code> and <code>logs/</code>.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">Import</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Add alongside your other <code>./harness/…</code> imports from Phase 6.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="4" data-end="4">
+                                <summary><span class="guide-section__lines">Line 4</span><span class="guide-section__title">new HarnessLogger</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Reused for every user line in the REPL — the log file grows for the whole CLI session.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-6"><strong>5b —</strong> In <code>while (true) { … }</code>, <strong>keep</strong> the first three lines from Phase 4 (<code>const line</code>, empty check, <code>console.log</code>). <strong>Replace</strong> the old <code>try { const reply = await runTurn(…) … } catch</code> block with this full body (paste from <code>const line</code> through the closing <code>}</code> of the <code>catch</code>, or swap only the try/catch if you still have <code>line</code> above it):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/main.ts — full while loop body (Phase 4 REPL + Phase 7 logging)</div>
+                            <pre class="language-typescript"><code>  while (true) {
+    const line = await rl.question('&gt; ');
+    if (!line.trim()) break;
+
+    console.log('\n… agent working …\n');
+
+    const turnStarted = Date.now();
+
+    await logger.event('turn_start', {
+      profileId: profile.id,
+      inputChars: line.length,
+    });
+
+    try {
+      const reply = await runTurn(session, agent, line, profile, logger);
+
+      await logger.event('turn_end', {
+        profileId: profile.id,
+        durationMs: Date.now() - turnStarted,
+        status: 'ok',
+        replyChars: reply.length,
+      });
+
+      console.log(`\n${reply}\n`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+
+      await logger.event('turn_error', {
+        profileId: profile.id,
+        durationMs: Date.now() - turnStarted,
+        status: 'error',
+        message,
+      });
+
+      console.error(err);
+    }
+  }</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for main logging">
+                        <div class="guide-header">
+                            <h4><code>line</code> must exist first</h4>
+                            <p>The prompt read happens before logging and <code>runTurn</code>.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="5" open>
+                                <summary><span class="guide-section__lines">Lines 1–5</span><span class="guide-section__title">Phase 4 REPL (keep)</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>line</code> is defined here. If you only pasted the logging block and commented these lines out, TypeScript will report <code>Cannot find name 'line'</code> — uncomment or use this full snippet.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="7" data-end="12">
+                                <summary><span class="guide-section__lines">Lines 7–12</span><span class="guide-section__title">turn_start</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Runs after you have <code>line</code>. <code>inputChars</code> logs length only, not raw user text.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="14" data-end="15">
+                                <summary><span class="guide-section__lines">Line 15</span><span class="guide-section__title">runTurn + logger</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Fifth argument is the logger from Step 5a. <code>line</code> is the user’s prompt for this turn.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="17" data-end="22">
+                                <summary><span class="guide-section__lines">Lines 17–22</span><span class="guide-section__title">turn_end (outer)</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Wall-clock <code>durationMs</code> for the whole user line and <code>replyChars</code> for a quick sanity check.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="24" data-end="33">
+                                <summary><span class="guide-section__lines">Lines 24–33</span><span class="guide-section__title">turn_error</span></summary>
+                                <div class="guide-section__body">
+                                    <p>REPL keeps running. Max-iteration throws and API errors still land in <code>logs/</code>.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-4 text-sm">You will now have two <code>turn_end</code> events per successful turn — one inside <code>runTurn</code> (loop steps) and one in <code>main</code> (wall-clock). That is intentional; grep <code>turn_end</code> and compare <code>durationMs</code> vs sum of <code>model_step</code> durations when profiling.</p>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 6: Run it and read the logs</h3>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">Terminal</div>
+                            <pre class="language-bash"><code>npm start
+
+# Try a multi-tool task:
+# "List src/harness, read loop.ts, and summarize the agent loop in 3 bullets."
+
+# In another terminal (use your printed session id):
+ls logs/
+grep '"kind":"model_step"' logs/YOUR-SESSION-ID.jsonl
+grep '"kind":"tool"' logs/YOUR-SESSION-ID.jsonl | head -5
+grep '"denied":true' logs/YOUR-SESSION-ID.jsonl
+
+# Planner denial check:
+AGENT_PROFILE=planner npm start
+# Ask it to write a file — watch denied=true on write_file</code></pre>
+                        </div>
+                        <div class="code-block mt-4">
+                            <div class="code-block__header">Example log line (pretty-printed)</div>
+                            <pre class="language-json"><code>{
+  "ts": "2026-06-02T15:04:01.123Z",
+  "kind": "model_step",
+  "step": 1,
+  "profileId": "implementer",
+  "durationMs": 1842,
+  "promptTokens": 2104,
+  "completionTokens": 87,
+  "totalTokens": 2191,
+  "toolCallCount": 0
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for reading logs">
+                        <div class="guide-header">
+                            <h4>What to look for</h4>
+                            <p>Terminal + file should tell the same story.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">npm start</span><span class="guide-section__title">Live [harness] lines</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Sequence: <code>turn_start</code> → repeating <code>model_step</code> / <code>tool</code> pairs → <code>turn_end</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="11" data-end="11">
+                                <summary><span class="guide-section__lines">grep denied</span><span class="guide-section__title">Profile enforcement</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Confirms Phase 6 denials show up in observability — not only in session tool messages.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="1" data-end="1">
+                                <summary><span class="guide-section__lines">Troubleshooting</span><span class="guide-section__title">Common issues</span></summary>
+                                <div class="guide-section__body">
+                                    <ul>
+                                        <li><strong>No logs/ folder</strong> — no turn completed yet, or logger not passed into <code>runTurn</code>.</li>
+                                        <li><strong>Expected 5 arguments</strong> — update <code>runTurn(session, agent, line, profile, logger)</code> at the call site.</li>
+                                        <li><strong>usage always undefined</strong> — provider may omit usage; fields stay optional. Loop still works.</li>
+                                        <li><strong>Duplicate turn_end</strong> — expected (loop + main); filter by presence of <code>durationMs</code> vs <code>loopSteps</code>.</li>
+                                    </ul>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 7: Iterate from logs (the harness engineering loop)</h3>
+                <p>When something goes wrong, use this checklist before blaming the model:</p>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <ol class="list-decimal pl-5 space-y-3 text-sm">
+                        <li><strong>Reproduce once</strong> — same profile, same prompt. Note session ID.</li>
+                        <li><strong>Open <code>logs/&lt;id&gt;.jsonl</code></strong> — find the last <code>turn_error</code> or the final <code>model_step</code> before the run stopped.</li>
+                        <li><strong>Classify the failure</strong>
+                            <ul class="list-disc pl-5 mt-1">
+                                <li>High <code>toolCallCount</code> every step → tool loop; tighten prompts or lower <code>MAX_ITERATIONS</code>.</li>
+                                <li><code>denied: true</code> → profile mismatch; fix profile or user expectation.</li>
+                                <li>Rising <code>totalTokens</code> → context bloat; Phase 8 compaction teaser.</li>
+                                <li>Slow <code>durationMs</code> on tools → filesystem or huge reads; trim tool output later.</li>
+                            </ul>
+                        </li>
+                        <li><strong>Change one harness knob</strong> — tool description, profile allow-list, system prompt, sandbox — run again.</li>
+                        <li><strong>Compare logs</strong> — did <code>loopSteps</code> or token totals improve?</li>
+                    </ol>
+                    <p class="mt-4 text-sm text-slate-600">Addy Osmani’s harness engineering point applies here: recurring mistakes are <em>harness</em> problems. Logs tell you which ratchet to add next.</p>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <strong>Files touched in Phase 7:</strong>
+                    <ul class="mt-3 space-y-1 text-sm list-disc pl-5 font-mono">
+                        <li>.gitignore — logs/</li>
+                        <li>src/harness/logger.ts — <span class="font-sans">new</span></li>
+                        <li>src/harness/loop.ts — model_step, tool, turn_end events</li>
+                        <li>src/main.ts — HarnessLogger, turn_start / turn_end / turn_error</li>
+                    </ul>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl mt-4">
+                    <strong>What you are <em>not</em> building yet (on purpose):</strong>
+                    <ul class="mt-3 space-y-2 text-sm list-disc pl-5">
+                        <li><strong>OpenTelemetry / Datadog traces</strong> — same event shape could export there later.</li>
+                        <li><strong>Live web dashboard</strong> — JSONL + grep is enough for 101.</li>
+                        <li><strong>Automatic prompt rewriting from failures</strong> — you decide changes; Phase 8 lists advanced automation.</li>
+                        <li><strong>Logging full API request bodies</strong> — too large and leaky; stick to previews and token counts.</li>
+                    </ul>
+                </div>
+
+                <div class="highlight-box p-6 rounded-3xl mt-6">
+                    <strong>Checkpoint:</strong> Your harness now <strong>records what it did</strong> — model steps, tools, tokens, denials, and errors — in a grep-friendly log beside the chat transcript. That is observability. Using those logs to tune profiles and prompts is iteration. Phase 8 surveys advanced patterns (compaction, subagents, diff review) to build on this foundation.
+                </div>
+            </div>
+
+            <nav class="lesson-nav" aria-label="Lesson navigation">
+                <a href="phase-6.html" class="lesson-nav__link lesson-nav__link--prev">← Safety, Permissions & Agent Profiles</a>
+                <a href="phase-8.html" class="lesson-nav__link lesson-nav__link--next">Next Steps & Advanced Patterns →</a>
+            </nav>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>

@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 05 — Context Management & Turn Snapshots | Agent Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <header class="site-header">
+        <div class="site-header__inner max-w-screen-xl mx-auto">
+            <a href="index.html" class="site-header__brand">
+                <div>
+                    <h1 class="site-header__title heading-font">Agent Harness</h1>
+                    <p class="site-header__subtitle">TypeScript Edition</p>
+                </div>
+            </a>
+            <div class="site-header__actions">
+                <span class="site-header__badge">Phase 05 of 08</span>
+                <a href="index.html" class="site-header__cta">Table of Contents</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-screen-xl mx-auto px-6 pt-10 pb-20">
+        <!-- PHASE 5 -->
+        <div id="phase-5" class="mb-20 scroll-mt-20">
+            <div class="flex items-center gap-x-3 mb-6">
+                <div class="step-number bg-blue-600 text-white rounded-2xl text-sm">05</div>
+                <h2 class="text-4xl font-semibold tracking-tight">Context Management & Turn Snapshots</h2>
+            </div>
+            <div class="prose-custom">
+                <div class="learn-banner">
+                    <span class="learn-banner__icon">💡</span>
+                    <div>
+                        <strong>How to use this lesson:</strong> You already have a working agent loop from Phase 4. This phase is a <strong>small change in one file</strong> — <code>src/harness/loop.ts</code> — but it teaches a big harness idea: <em>what you log</em> and <em>what you send to the model</em> are not the same thing. Type each snippet; use the sidebar line guides as before.
+                    </div>
+                </div>
+
+                <p>Phase 4 gave you repetition: the model can call tools many times per user message. Phase 5 gives you <strong>visibility</strong>: before every model call, you freeze a small record of harness state so you can answer questions like “which tools were available on step 3?” or “was the working directory already changed?”</p>
+
+                <p>Production harnesses (Pi, OpenCode, Hermes) all separate <strong>durable session logs</strong> from <strong>provider context</strong>. You started that split in Phase 4 with <code>toApiMessages()</code>, which strips <code>timestamp</code>. Here you extend it: some messages exist only for humans and debugging — they never go back to Grok.</p>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <div class="font-semibold mb-2">Two channels (memorize this):</div>
+                    <ul class="space-y-2 text-sm list-disc pl-5">
+                        <li><strong>Durable log</strong> — everything in <code>sessions/&lt;id&gt;.jsonl</code>: user, assistant, tool results, timestamps, turn snapshots.</li>
+                        <li><strong>Model context</strong> — only what <code>toApiMessages()</code> returns when you call <code>agent.chat()</code>. Must match what the API accepts and what you intend the model to reason over.</li>
+                    </ul>
+                    <p class="mt-3 text-sm text-slate-600">If you dump debug JSON into the log but forget to filter it out of model context, you waste tokens and confuse the model. If you filter it out but never log it, you cannot debug flaky runs. Phase 5 does both correctly.</p>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-8 mb-4">Why turn snapshots?</h3>
+                <p>One <em>user turn</em> (what you type at the CLI) can include many <em>loop steps</em> (model call → tools → model call → …). Between those steps, your harness changes state: tool results append to history, and later you might change cwd, tool lists, or permissions (Phase 6).</p>
+                <p>A <strong>turn snapshot</strong> is a harness-owned message that records “what the world looked like <em>right before</em> this model call.” Research harness docs call this pattern out explicitly: snapshot at turn boundaries so mid-turn mutations do not create impossible-to-reproduce bugs.</p>
+                <p>You are not building Pi’s full snapshot (model ID, stream options, extension hooks). You are learning the <strong>shape</strong> of the idea with four fields any beginner can understand.</p>
+
+                <div class="my-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl text-sm">
+                    <strong>Prerequisites:</strong> Finish Phase 4 first — <code>loop.ts</code> with <code>toApiMessages</code>, <code>runTurn</code>, and <code>main.ts</code> running via <code>npm start</code>. This phase only edits <code>loop.ts</code> (and optionally documents <code>hidden</code> on <code>Message</code> in <code>session.ts</code>).
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 1: Exclude <code>hidden</code> messages from model context</h3>
+                <p>Phase 4’s <code>toApiMessages()</code> already removed the <code>hidden</code> <em>field</em> from each message. That is not enough: a snapshot is still a <code>system</code> message with a long JSON body. You need to drop entire messages marked <code>hidden: true</code> before calling the API.</p>
+                <p>In <code>src/harness/loop.ts</code>, <strong>replace</strong> your existing <code>toApiMessages</code> function with this version:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — toApiMessages() (updated)</div>
+                            <pre class="language-typescript"><code>/** Strip harness-only messages and fields before sending history to the API. */
+export function toApiMessages(messages: Message[]): Record&lt;string, unknown&gt;[] {
+  return messages
+    .filter((m) =&gt; !m.hidden)
+    .map(({ timestamp, hidden, ...rest }) =&gt; rest);
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for toApiMessages filter">
+                        <div class="guide-header">
+                            <h4>Filter, then strip</h4>
+                            <p>Order matters: remove whole messages first, then peel metadata off survivors.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">Comment documents intent</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Future you (and teammates) should know this function is the single gate for “what Grok sees.” Compaction, summarization, and profile-specific prompts also belong here in advanced harnesses.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="2" data-end="5">
+                                <summary><span class="guide-section__lines">Lines 2–5</span><span class="guide-section__title">filter + map</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>.filter((m) =&gt; !m.hidden)</code> drops turn snapshots and any other harness-only rows. <code>.map(...)</code> then removes <code>timestamp</code> and <code>hidden</code> from messages that <em>do</em> go to the API.</p>
+                                    <div class="guide-why"><strong>Why:</strong> Snapshots belong in the JSONL audit trail, not in the model’s reasoning context.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <p class="mt-4 text-sm">Optional clarity in <code>src/harness/session.ts</code> — add <code>hidden?: boolean;</code> to the <code>Message</code> type next to <code>timestamp</code>. Your <code>[key: string]: any</code> index signature already allows it; the explicit field helps TypeScript autocomplete.</p>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 2: Define what a snapshot contains</h3>
+                <p>Still in <code>loop.ts</code>, add a type and a helper <strong>below</strong> <code>toApiMessages</code> and <strong>above</strong> <code>runTurn</code>. This keeps snapshot logic in one place.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — TurnSnapshot type &amp; recordTurnSnapshot()</div>
+                            <pre class="language-typescript"><code>type TurnSnapshot = {
+  step: number;
+  messageCount: number;
+  toolsAvailable: string[];
+  workingDir: string;
+  timestamp: string;
+};
+
+async function recordTurnSnapshot(session: Session, step: number): Promise&lt;void&gt; {
+  const snapshot: TurnSnapshot = {
+    step,
+    messageCount: session.getHistory().length,
+    toolsAvailable: TOOLS.map((t) =&gt; t.function.name),
+    workingDir: process.cwd(),
+    timestamp: new Date().toISOString(),
+  };
+
+  await session.addMessage(
+    'system',
+    `TURN SNAPSHOT: ${JSON.stringify(snapshot)}`,
+    { hidden: true },
+  );
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for recordTurnSnapshot">
+                        <div class="guide-header">
+                            <h4>Freeze state before each model call</h4>
+                            <p>Each field answers a common debugging question.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="7" open>
+                                <summary><span class="guide-section__lines">Lines 1–7</span><span class="guide-section__title">TurnSnapshot fields</span></summary>
+                                <div class="guide-section__body">
+                                    <ul>
+                                        <li><code>step</code> — which iteration of the <code>for</code> loop (0, 1, 2…). Maps to “model call #N this user turn.”</li>
+                                        <li><code>messageCount</code> — how many rows are in session history <em>before</em> this call. Grows as tools append results.</li>
+                                        <li><code>toolsAvailable</code> — names from your <code>TOOLS</code> array. If the model never calls <code>read_file</code>, you can check whether it was even offered.</li>
+                                        <li><code>workingDir</code> — <code>process.cwd()</code> at snapshot time. Relative paths in tool args depend on this.</li>
+                                        <li><code>timestamp</code> — when the snapshot was taken (separate from per-message <code>timestamp</code> on other rows).</li>
+                                    </ul>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="9" data-end="16">
+                                <summary><span class="guide-section__lines">Lines 9–16</span><span class="guide-section__title">Build the object</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>TOOLS.map((t) =&gt; t.function.name)</code> assumes OpenAI-style tool schemas from Phase 3 — same shape you already pass to <code>chat()</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="18" data-end="22">
+                                <summary><span class="guide-section__lines">Lines 18–22</span><span class="guide-section__title">Persist with hidden: true</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>role: 'system'</code> keeps snapshots out of the user/assistant narrative but easy to grep. Prefix <code>TURN SNAPSHOT:</code> so you can search JSONL files. <code>JSON.stringify(snapshot)</code> stores one line of compact JSON inside <code>content</code>.</p>
+                                    <div class="guide-why"><strong>Why:</strong> <code>addMessage</code> is your durability hook — snapshots survive crashes the same way user messages do.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 3: Call the snapshot at the top of each loop step</h3>
+                <p>Inside <code>runTurn</code>, find the <code>for</code> loop from Phase 4. Add <strong>one line</strong> as the first statement in the loop body — immediately after <code>for (let step = 0; …) {</code> and <strong>before</strong> <code>const response = await agent.chat(…)</code>.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — inside runTurn's for loop</div>
+                            <pre class="language-typescript"><code>  for (let step = 0; step &lt; MAX_ITERATIONS; step++) {
+    await recordTurnSnapshot(session, step);
+
+    const response = await agent.chat(
+      toApiMessages(session.getHistory()),
+      TOOLS,
+    );</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for wiring snapshot">
+                        <div class="guide-header">
+                            <h4>Snapshot → then chat</h4>
+                            <p>Never call the model before you record what the harness looked like.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="2" open>
+                                <summary><span class="guide-section__lines">Lines 1–2</span><span class="guide-section__title">Order of operations</span></summary>
+                                <div class="guide-section__body">
+                                    <p>When step 0 runs, history usually ends with the user message you appended at the start of <code>runTurn</code>. When step 1 runs, history includes assistant tool-call rows and tool results from step 0 — <code>messageCount</code> in the snapshot reflects that growth.</p>
+                                    <div class="guide-why"><strong>Why:</strong> If you logged <em>after</em> <code>chat()</code>, you would mix “state before the call” with “state after the model already replied.”</div>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="4" data-end="7">
+                                <summary><span class="guide-section__lines">Lines 4–7</span><span class="guide-section__title">Unchanged chat call</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>toApiMessages(session.getHistory())</code> now automatically excludes every snapshot you just appended, because they carry <code>hidden: true</code>.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 4 (optional): Log the step in the terminal</h3>
+                <p>Snapshots are for the JSONL file; a one-line console log helps you watch the loop live without opening the session file.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — optional debug line</div>
+                            <pre class="language-typescript"><code>    await recordTurnSnapshot(session, step);
+    console.log(`  step ${step} → model`);</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for console log">
+                        <div class="guide-header">
+                            <h4>Terminal vs JSONL</h4>
+                            <p>Observability gets deeper in Phase 7; this is a minimal preview.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="2" open>
+                                <summary><span class="guide-section__lines">Lines 1–2</span><span class="guide-section__title">Why log here</span></summary>
+                                <div class="guide-section__body">
+                                    <p>You will see <code>step 0 → model</code>, then tool lines from Phase 4, then <code>step 1 → model</code>, and so on. That lines up with snapshot <code>step</code> values in the JSONL file.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="my-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl text-sm">
+                    <strong>Checkpoint — your loop body order should be:</strong>
+                    <pre class="mt-3 text-xs leading-relaxed"><code>for (let step = 0; step &lt; MAX_ITERATIONS; step++) {
+  await recordTurnSnapshot(session, step);   // Phase 5
+  // optional: console.log(`  step ${step} → model`);
+  const response = await agent.chat(…);      // Phase 4
+  … tool branch or final text …              // Phase 4
+}</code></pre>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 5: What lands in the JSONL file</h3>
+                <p>Run a short task, then open <code>sessions/&lt;your-session-id&gt;.jsonl</code>. You should see snapshot lines mixed with normal messages. Example (pretty-printed for reading; the file stores one JSON object per line):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">sessions/example.jsonl — excerpt</div>
+                            <pre class="language-json"><code>{"role":"user","content":"List files in src/harness","timestamp":"2026-06-02T12:00:00.000Z"}
+{"role":"system","content":"TURN SNAPSHOT: {\"step\":0,\"messageCount\":1,\"toolsAvailable\":[\"read_file\",\"write_file\",\"list_files\"],\"workingDir\":\"/Users/you/my-ts-agent\",\"timestamp\":\"2026-06-02T12:00:01.000Z\"}","timestamp":"2026-06-02T12:00:01.000Z","hidden":true}
+{"role":"assistant","content":"","timestamp":"2026-06-02T12:00:02.000Z","tool_calls":[...]}
+{"role":"tool","content":"session.ts\nagent.ts\n...","timestamp":"2026-06-02T12:00:02.100Z","tool_call_id":"call_abc","name":"list_files"}
+{"role":"system","content":"TURN SNAPSHOT: {\"step\":1,\"messageCount\":4,...}","timestamp":"2026-06-02T12:00:03.000Z","hidden":true}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for JSONL excerpt">
+                        <div class="guide-header">
+                            <h4>Read the story backward</h4>
+                            <p>When something looks wrong, find the snapshot for that step first.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">User row</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Normal durable message — always sent to the model (not hidden).</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="2" data-end="2">
+                                <summary><span class="guide-section__lines">Line 2</span><span class="guide-section__title">step 0 snapshot</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>messageCount: 1</code> — only the user message so far. <code>toolsAvailable</code> lists all three file tools. This row is <strong>not</strong> in Grok’s context thanks to <code>hidden: true</code> + <code>toApiMessages</code> filter.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="4" data-end="4">
+                                <summary><span class="guide-section__lines">Line 4</span><span class="guide-section__title">step 1 snapshot</span></summary>
+                                <div class="guide-section__body">
+                                    <p><code>messageCount</code> jumped — assistant tool call + tool result were appended between steps. Compare snapshots side-by-side to see history growth per model call.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 6: Verify it works</h3>
+                <p>From the project root:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">Terminal — run and inspect</div>
+                            <pre class="language-bash"><code>npm start
+
+# After a task that used at least one tool, in another terminal:
+grep "TURN SNAPSHOT" sessions/*.jsonl | head -5</code></pre>
+                        </div>
+                        <div class="code-block mt-4">
+                            <div class="code-block__header">Type check (no API call)</div>
+                            <pre class="language-bash"><code>npx tsc --noEmit</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for verification">
+                        <div class="guide-header">
+                            <h4>Success criteria</h4>
+                            <p>The agent should behave like Phase 4; only the log gets richer.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">npm start</span><span class="guide-section__title">Behavior unchanged</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Try: “List every file in <code>src/harness</code>.” You should still see <code>tool → list_files</code> and a final answer. Optional <code>step N → model</code> lines appear if you added Step 4.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="4" data-end="4">
+                                <summary><span class="guide-section__lines">grep</span><span class="guide-section__title">Snapshots on disk</span></summary>
+                                <div class="guide-section__body">
+                                    <p>At least one line per model step. Multi-tool turns produce multiple snapshots with increasing <code>step</code> and <code>messageCount</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="1" data-end="1">
+                                <summary><span class="guide-section__lines">tsc</span><span class="guide-section__title">Troubleshooting</span></summary>
+                                <div class="guide-section__body">
+                                    <ul>
+                                        <li><strong>Property 'hidden' does not exist</strong> — add <code>hidden?: boolean</code> to <code>Message</code> in <code>session.ts</code>, or rely on the index signature.</li>
+                                        <li><strong>Snapshots in model replies / weird answers</strong> — you forgot <code>.filter((m) =&gt; !m.hidden)</code> in <code>toApiMessages</code>.</li>
+                                        <li><strong>No snapshots in file</strong> — <code>recordTurnSnapshot</code> is not awaited, or it sits after <code>chat()</code> instead of before.</li>
+                                    </ul>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl mt-8">
+                    <strong>What you are <em>not</em> building yet (on purpose):</strong>
+                    <ul class="mt-3 space-y-2 text-sm list-disc pl-5">
+                        <li><strong>Compaction / summarization</strong> — trimming old tool output before it fills the context window (Phase 08 teaser).</li>
+                        <li><strong>Permission profiles</strong> — different tool sets per mode (Phase 6). Snapshots will later show which profile was active.</li>
+                        <li><strong>UI that hides snapshot rows</strong> — <code>hidden</code> is ready for a TUI or web UI in Phase 7.</li>
+                    </ul>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <strong>When should you stop and test?</strong>
+                    <ul class="mt-3 space-y-2 text-sm list-disc pl-5">
+                        <li><strong>After Step 1:</strong> <code>npx tsc --noEmit</code> — quick type check.</li>
+                        <li><strong>After Step 3:</strong> <code>npm start</code> with a multi-step task, then <code>grep TURN SNAPSHOT</code> on the session file.</li>
+                        <li><strong>After Phase 6:</strong> Same CLI; profiles will change which tools run — snapshots help prove what was allowed each step.</li>
+                    </ul>
+                </div>
+
+                <div class="highlight-box p-6 rounded-3xl mt-6">
+                    <strong>Checkpoint:</strong> You now practice <strong>context governance</strong> in miniature: rich durable logs, lean model context, and a per-step snapshot of harness state. That trio is what separates a toy chat script from a harness you can debug. Phase 6 adds permission profiles so the harness — not the model — decides which tools are allowed.
+                </div>
+            </div>
+
+            <nav class="lesson-nav" aria-label="Lesson navigation">
+                <a href="phase-4.html" class="lesson-nav__link lesson-nav__link--prev">← The Agent Loop</a>
+                <a href="phase-6.html" class="lesson-nav__link lesson-nav__link--next">Safety, Permissions & Agent Profiles →</a>
+            </nav>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>

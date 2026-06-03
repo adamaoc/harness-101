@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 08 — Next Steps & Advanced Patterns | Agent Harness</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <header class="site-header">
+        <div class="site-header__inner max-w-screen-xl mx-auto">
+            <a href="index.html" class="site-header__brand">
+                <div>
+                    <h1 class="site-header__title heading-font">Agent Harness</h1>
+                    <p class="site-header__subtitle">TypeScript Edition</p>
+                </div>
+            </a>
+            <div class="site-header__actions">
+                <span class="site-header__badge">Phase 08 of 08</span>
+                <a href="index.html" class="site-header__cta">Table of Contents</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="max-w-screen-xl mx-auto px-6 pt-10 pb-20">
+        <div id="phase-8" class="mb-20 scroll-mt-20">
+            <div class="flex items-center gap-x-3 mb-6">
+                <div class="step-number bg-blue-600 text-white rounded-2xl text-sm">08</div>
+                <h2 class="text-4xl font-semibold tracking-tight">Next Steps & Advanced Patterns</h2>
+            </div>
+            <div class="prose-custom">
+                <div class="learn-banner">
+                    <span class="learn-banner__icon">🎓</span>
+                    <div>
+                        <strong>How to use this lesson:</strong> Phases 1–7 built a <em>real</em> harness — memory, Grok, tools, loop, snapshots, profiles, logs. Phase 8 is the <strong>capstone</strong>: you wire a few patterns production harnesses use (plan → build → review, diff preview, compaction, lightweight sub-agents). Each step says <strong>which file</strong> to open and <strong>where</strong> to paste or replace code. Go in order; skip a pattern only if you understand what you are deferring.
+                    </div>
+                </div>
+
+                <p>You are not starting over. You are bolting new abilities onto the same project you have been typing since Phase 1. Think of your harness as a small robot:</p>
+                <ul>
+                    <li><strong>Brain</strong> — Grok (Phase 2)</li>
+                    <li><strong>Memory</strong> — <code>sessions/*.jsonl</code> (Phase 1)</li>
+                    <li><strong>Hands</strong> — file tools (Phase 3)</li>
+                    <li><strong>Reflexes</strong> — the loop (Phase 4)</li>
+                    <li><strong>Notes to self</strong> — turn snapshots (Phase 5)</li>
+                    <li><strong>Rules</strong> — profiles (Phase 6)</li>
+                    <li><strong>Eyes</strong> — <code>logs/*.jsonl</code> (Phase 7)</li>
+                </ul>
+                <p>Phase 8 teaches the harness how to <strong>work in stages</strong>, <strong>show diffs before it hurts</strong>, <strong>forget old chat safely</strong>, and <strong>ask a helper agent for one job</strong>.</p>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <div class="font-semibold mb-2">What “advanced” means here</div>
+                    <p class="text-sm text-slate-600 mb-0">We are not cloning any single product. We are adding <strong>small, understandable hooks</strong> inspired by patterns seen in tools like OpenCode and Cursor, so names like compaction and subagents feel familiar when you read other harness writeups later.</p>
+                </div>
+
+                <div class="my-6 p-5 bg-amber-50 border border-amber-200 rounded-2xl text-sm">
+                    <strong>Prerequisites:</strong> Phase 7 complete — <code>HarnessLogger</code> wired through <code>main.ts</code> and <code>loop.ts</code>, <code>logs/</code> in <code>.gitignore</code>. Your agent should run with <code>npm start</code> and finish at least one tool-using turn.
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 1: Small cleanup in <code>main.ts</code> and <code>loop.ts</code></h3>
+                <p>Before new features, fix two common leftovers from earlier phases. Open these files in your project (paths are always under your project root, e.g. <code>my-ts-agent/</code>).</p>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">1a — Use the profile’s system prompt (<code>src/main.ts</code>)</h4>
+                <p>Phase 6 introduced profiles with their own <code>systemPrompt</code>. If <code>main.ts</code> still has a hard-coded <code>SYSTEM_PROMPT</code> constant, the profile switcher lies to you — the model always sees the old text.</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/main.ts — DELETE the old constant (top of file)</div>
+                            <pre class="language-typescript"><code>// Remove this entire block if you still have it:
+const SYSTEM_PROMPT = 'You are a helpful coding agent...';</code></pre>
+                        </div>
+                        <div class="code-block mt-4">
+                            <div class="code-block__header">src/main.ts — REPLACE the “first message” block inside main()</div>
+                            <pre class="language-typescript"><code>  if (session.getHistory().length === 0) {
+    await session.addMessage('system', profile.systemPrompt);
+  }</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for profile system prompt">
+                        <div class="guide-header">
+                            <h4>One source of truth</h4>
+                            <p>Planner / implementer / reviewer prompts live in <code>profiles.ts</code> only.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="3" open>
+                                <summary><span class="guide-section__lines">Lines 1–3</span><span class="guide-section__title">profile.systemPrompt</span></summary>
+                                <div class="guide-section__body">
+                                    <p>When you run <code>AGENT_PROFILE=planner npm start</code>, the first system message is the planner instructions — not a generic “helpful agent” string.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">1b — Quit on empty line (<code>src/main.ts</code>)</h4>
+                <p>Inside the <code>while (true)</code> loop, right after <code>const line = await rl.question('&gt; ');</code>, add:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/main.ts — after rl.question</div>
+                            <pre class="language-typescript"><code>    if (!line.trim()) break;</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for quit">
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="1" open>
+                                <summary><span class="guide-section__lines">Line 1</span><span class="guide-section__title">Empty line = exit</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Press Enter on an empty prompt to leave the CLI. Your session file stays on disk for next time.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">1c — One <code>turn_end</code> owner (<code>src/harness/loop.ts</code>)</h4>
+                <p>Phase 7 logs <code>turn_end</code> in both <code>loop.ts</code> (with <code>loopSteps</code>) and <code>main.ts</code> (with <code>durationMs</code>). That is fine for learning, but noisy. Pick one place for the “loop finished OK” event.</p>
+                <p><strong>Recommended:</strong> In <code>loop.ts</code>, find the block right before <code>return text</code> that calls <code>logger.event('turn_end', …)</code> and <strong>delete that entire <code>await logger.event('turn_end', …)</code> call</strong>. Keep <code>turn_start</code> / <code>turn_end</code> / <code>turn_error</code> in <code>main.ts</code> only — they wrap the whole user turn including wall-clock time.</p>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 2: Multi-phase workflow (Plan → Implement → Review)</h3>
+                <p>You already have three profiles from Phase 6. Phase 8’s first <em>pattern</em> is not new code — it is <strong>how you run them in sequence</strong> like a tiny software team.</p>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl text-sm">
+                    <ol class="list-decimal pl-5 space-y-4">
+                        <li>
+                            <strong>Plan (read-only)</strong><br>
+                            <code>AGENT_PROFILE=planner npm start</code><br>
+                            Ask: “Explore <code>src/harness/</code> and propose how to add diff preview to write_file.”<br>
+                            Copy the numbered plan from the assistant message. Quit with an empty line.
+                        </li>
+                        <li>
+                            <strong>Implement (read + write)</strong><br>
+                            Start a <em>new</em> session (delete or rename old <code>sessions/*.jsonl</code> if you want a clean slate) or continue — your choice.<br>
+                            <code>AGENT_PROFILE=implementer npm start</code><br>
+                            Paste: “Follow this plan: …” and let it edit files.
+                        </li>
+                        <li>
+                            <strong>Review (read-only feedback)</strong><br>
+                            <code>AGENT_PROFILE=reviewer npm start</code><br>
+                            Ask: “Review the diff-preview changes for bugs and missing edge cases.”
+                        </li>
+                    </ol>
+                </div>
+
+                <p><strong>Why this matters:</strong> Production harnesses (OpenCode’s <code>plan</code> vs <code>build</code> agents) separate <em>thinking</em> from <em>editing</em> so the model does not “helpfully” rewrite half your repo while still exploring. Your profiles are the beginner version of that idea.</p>
+
+                <div class="my-6 p-5 bg-slate-100 border border-slate-200 rounded-2xl text-sm">
+                    <strong>Optional later:</strong> A single CLI command that runs planner → implementer → reviewer automatically. That needs orchestration code (Phase 8 Step 5’s sub-agent pattern is one building block). For now, <em>you</em> are the orchestrator — and that is enough to learn the workflow.
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 3: Diff preview before writes</h3>
+                <p>When the model calls <code>write_file</code>, blind overwrites are scary. A <strong>diff</strong> is a text report of what changed: lines removed (<code>-</code>) and lines added (<code>+</code>). We will:</p>
+                <ol class="list-decimal pl-5 space-y-2 text-sm mt-2">
+                    <li>Install a tiny diff library.</li>
+                    <li>Add <code>src/harness/diff.ts</code> to format patches.</li>
+                    <li>Change <code>write_file</code> in <code>src/harness/tools.ts</code> to include the patch in the tool result (so the model — and your logs — see what happened).</li>
+                </ol>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">3a — Install dependency (project root)</h4>
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">Terminal — project root</div>
+                            <pre class="language-bash"><code>npm install diff
+npm install -D @types/diff</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for diff package">
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="2" open>
+                                <summary><span class="guide-section__lines">npm install</span><span class="guide-section__title">diff package</span></summary>
+                                <div class="guide-section__body">
+                                    <p>We could hand-roll a diff; using <code>diff</code> matches what most JS tooling does and keeps the lesson short.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">3b — Create <code>src/harness/diff.ts</code> (new file)</h4>
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/diff.ts — new file</div>
+                            <pre class="language-typescript"><code>import { createTwoFilesPatch } from 'diff';
+
+const MAX_DIFF_CHARS = 4000;
+
+/** Unified diff string for logging and tool results. */
+export function formatFileDiff(
+  relativePath: string,
+  before: string,
+  after: string,
+): string {
+  const patch = createTwoFilesPatch(
+    relativePath,
+    relativePath,
+    before,
+    after,
+    'before',
+    'after',
+  );
+
+  if (patch.length &lt;= MAX_DIFF_CHARS) {
+    return patch;
+  }
+
+  return (
+    patch.slice(0, MAX_DIFF_CHARS) +
+    `\n… (diff truncated at ${MAX_DIFF_CHARS} characters)`
+  );
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for diff.ts">
+                        <div class="guide-header">
+                            <h4>Human-readable patches</h4>
+                            <p>Same format <code>git diff</code> uses.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="3" open>
+                                <summary><span class="guide-section__lines">Lines 1–3</span><span class="guide-section__title">MAX_DIFF_CHARS</span></summary>
+                                <div class="guide-section__body">
+                                    <p>A huge file could produce a megabyte diff and blow up the model context. Truncation is a harness safety rail — not laziness.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="5" data-end="18">
+                                <summary><span class="guide-section__lines">Lines 5–18</span><span class="guide-section__title">createTwoFilesPatch</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Compares old vs new full file text. New files get “all lines added” style output — still useful.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">3c — Update <code>write_file</code> in <code>src/harness/tools.ts</code></h4>
+                <p><strong>At the top of the file</strong> — add this import next to your other imports:</p>
+                <pre class="language-typescript"><code>import { formatFileDiff } from './diff.js';</code></pre>
+
+                <p class="mt-4"><strong>Find</strong> the private/async function <code>writeFile</code> (lowercase — the implementation, not the tool schema). It currently reads the path, writes content, and returns something like <code>Wrote path (N characters)</code>.</p>
+                <p><strong>Replace the entire <code>writeFile</code> function body</strong> with:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/tools.ts — replace writeFile function</div>
+                            <pre class="language-typescript"><code>async function writeFile(pathArg: string, content: string): Promise&lt;string&gt; {
+  const filePath = resolvePath(pathArg);
+
+  let before = '';
+  try {
+    before = await fs.readFile(filePath, 'utf-8');
+  } catch {
+    // new file — before stays ''
+  }
+
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, content, 'utf-8');
+
+  const patch = formatFileDiff(pathArg, before, content);
+
+  return (
+    `Wrote ${pathArg} (${content.length} characters)\n\n` +
+    `--- diff ---\n${patch}`
+  );
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for writeFile diff">
+                        <div class="guide-header">
+                            <h4>Sensor, not gate</h4>
+                            <p>This version still writes immediately — it only <em>reports</em> the diff.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="10" open>
+                                <summary><span class="guide-section__lines">Lines 1–10</span><span class="guide-section__title">Read before write</span></summary>
+                                <div class="guide-section__body">
+                                    <p>If the file did not exist, <code>before</code> is empty — the patch shows a full new file. If read fails for another reason, the harness still throws from <code>resolvePath</code> / write — same as before.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="15" data-end="22">
+                                <summary><span class="guide-section__lines">Lines 15–22</span><span class="guide-section__title">Return value</span></summary>
+                                <div class="guide-section__body">
+                                    <p>The model sees the diff in the tool result on the next loop step. Phase 7’s <code>preview()</code> in logs may truncate it — that is OK; the session JSONL still has the full tool message for replay.</p>
+                                    <div class="guide-why"><strong>Stricter harness (later):</strong> Two-step <code>propose_edit</code> + human approval before <code>apply_edit</code>. Diff preview is the gentle first step.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">3d — Nudge the model (optional) — <code>src/harness/profiles.ts</code></h4>
+                <p>In the <code>implementer</code> profile’s <code>systemPrompt</code> string, append one sentence:</p>
+                <pre class="language-typescript"><code>'After write_file, read the diff in the tool result and fix mistakes in a follow-up edit if needed.'</code></pre>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 4: Context compaction (summarize old chat)</h3>
+                <p>Long sessions fill the model’s <strong>context window</strong> (how much text it can see at once). Symptoms from Phase 7 logs: <code>totalTokens</code> climbing every turn, slower replies, or the API erroring on “context length exceeded.”</p>
+                <p><strong>Compaction</strong> means: replace a chunk of old messages with a short summary the model still reads, and hide the originals so <code>toApiMessages</code> does not send them.</p>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">4a — Teach the session to hide messages — <code>src/harness/session.ts</code></h4>
+                <p><strong>At the bottom of the <code>Session</code> class</strong> (before the closing <code>}</code> of the class), add two methods:</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/session.ts — append inside class Session</div>
+                            <pre class="language-typescript"><code>  /** Mark messages hidden so toApiMessages skips them (Phase 8 compaction). */
+  markHidden(startIndex: number, endIndex: number): void {
+    for (let i = startIndex; i &lt;= endIndex; i++) {
+      if (this.messages[i]) {
+        this.messages[i].hidden = true;
+      }
+    }
+  }
+
+  /** Rewrite JSONL after compaction so hidden flags survive restart. */
+  async rewriteDisk(): Promise&lt;void&gt; {
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+    const body = this.messages.map((m) =&gt; JSON.stringify(m)).join('\n');
+    await fs.writeFile(this.filePath, body ? body + '\n' : '', 'utf-8');
+  }</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for session hide">
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="8" open>
+                                <summary><span class="guide-section__lines">markHidden</span><span class="guide-section__title">Reuse Phase 5 flag</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Phase 5’s <code>hidden: true</code> on snapshots already kept clutter out of the API. Compaction uses the same mechanism for old user/assistant/tool turns.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="10" data-end="15">
+                                <summary><span class="guide-section__lines">rewriteDisk</span><span class="guide-section__title">Durability</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Without this, restarting the CLI would reload old messages from JSONL and undo compaction. Rewriting the file is blunt but easy to understand.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">4b — Create <code>src/harness/compaction.ts</code> (new file)</h4>
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/compaction.ts — new file</div>
+                            <pre class="language-typescript"><code>import type { Session } from './session.js';
+import type { GrokAgent } from './agent.js';
+import type { HarnessLogger } from './logger.js';
+
+/** When visible messages exceed this, compact the middle. */
+const COMPACT_WHEN_VISIBLE_OVER = 30;
+
+/** Keep this many newest visible messages after compacting. */
+const KEEP_RECENT_VISIBLE = 12;
+
+export async function maybeCompact(
+  session: Session,
+  agent: GrokAgent,
+  logger: HarnessLogger,
+): Promise&lt;void&gt; {
+  const visible = session.getHistory().filter((m) =&gt; !m.hidden);
+
+  if (visible.length &lt;= COMPACT_WHEN_VISIBLE_OVER) {
+    return;
+  }
+
+  // Keep first visible message (usually system) + recent tail; summarize the middle.
+  const middle = visible.slice(1, visible.length - KEEP_RECENT_VISIBLE);
+
+  if (middle.length === 0) {
+    return;
+  }
+
+  const transcript = middle
+    .map((m) =&gt; `[${m.role}] ${m.content}`.slice(0, 500))
+    .join('\n');
+
+  const summarizePrompt =
+    'Summarize this agent conversation for future turns. ' +
+    'Keep: user goals, files touched, decisions, errors, open tasks. ' +
+    'Drop: pleasantries and repeated tool output. Under 400 words.\n\n' +
+    transcript;
+
+  const started = Date.now();
+  const response = await agent.chat(
+    [{ role: 'user', content: summarizePrompt }],
+    [],
+  );
+  const summary = response.choices[0]?.message?.content?.trim() ?? '(empty summary)';
+
+  await logger.event('compaction', {
+    hiddenCount: middle.length,
+    keptRecent: KEEP_RECENT_VISIBLE,
+    durationMs: Date.now() - started,
+    summaryChars: summary.length,
+  });
+
+  // Hide middle messages in the full history array (match by reference).
+  const history = session.getHistory();
+  for (const msg of middle) {
+    const idx = history.indexOf(msg);
+    if (idx &gt;= 0) {
+      session.markHidden(idx, idx);
+    }
+  }
+
+  await session.addMessage(
+    'system',
+    `COMPACTED HISTORY (${middle.length} messages summarized):\n${summary}`,
+    { hidden: false },
+  );
+
+  await session.rewriteDisk();
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for compaction">
+                        <div class="guide-header">
+                            <h4>Cheaper than sending everything</h4>
+                            <p>One extra model call when the session gets long.</p>
+                            <div class="guide-toolbar">
+                                <button type="button" data-action="expand-all">Expand all</button>
+                                <button type="button" data-action="collapse-all">Collapse all</button>
+                            </div>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="5" data-end="8" open>
+                                <summary><span class="guide-section__lines">Thresholds</span><span class="guide-section__title">Tunable knobs</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Start with 30 / 12. If you still hit context errors, lower <code>COMPACT_WHEN_VISIBLE_OVER</code>. If summaries feel lossy, raise <code>KEEP_RECENT_VISIBLE</code>.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="30" data-end="38">
+                                <summary><span class="guide-section__lines">Summarize call</span><span class="guide-section__title">Separate mini-turn</span></summary>
+                                <div class="guide-section__body">
+                                    <p>We pass a one-off user message — not the full session — so the summarizer is not confused by tool schemas. Production harnesses often use a cheaper or smaller model here; you can add that when you support multiple models.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="52" data-end="56">
+                                <summary><span class="guide-section__lines">compaction event</span><span class="guide-section__title">Observability</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Grep <code>logs/*.jsonl</code> for <code>"kind":"compaction"</code> to see when summaries ran and how big they were.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">4c — Call compaction from the loop — <code>src/harness/loop.ts</code></h4>
+                <p><strong>At the top</strong> — add import:</p>
+                <pre class="language-typescript"><code>import { maybeCompact } from './compaction.js';</code></pre>
+
+                <p class="mt-4"><strong>Inside <code>runTurn</code></strong>, find the line <code>await session.addMessage('user', userInput);</code> (or <code>"user"</code> with double quotes). <strong>Immediately after that line</strong>, add:</p>
+                <pre class="language-typescript"><code>  await maybeCompact(session, agent, logger);</code></pre>
+
+                <p class="mt-4">That is the <strong>only</strong> change inside <code>runTurn</code> for Step 4. Your function should look like this at the top (tool setup → user message → compact → loop):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/loop.ts — start of runTurn (check yours matches)</div>
+                            <pre class="language-typescript"><code>export async function runTurn(
+  session: Session,
+  agent: GrokAgent,
+  userInput: string,
+  profile: AgentProfile,
+  logger: HarnessLogger,
+): Promise&lt;string&gt; {
+  const toolSchemas = getToolSchemas(profile.allowedTools);
+
+  await session.addMessage('user', userInput);
+  await maybeCompact(session, agent, logger);
+
+  for (let step = 0; step &lt; MAX_ITERATIONS; step++) {
+    await recordTurnSnapshot(session, step, profile);
+    // ... rest of loop unchanged ...
+  }
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for loop compaction wiring">
+                        <div class="guide-header">
+                            <h4>Nothing to add inside the for loop</h4>
+                            <p>Compaction runs once per user message, before the loop starts.</p>
+                        </div>
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="20" open>
+                                <summary><span class="guide-section__lines">runTurn top</span><span class="guide-section__title">Order matters</span></summary>
+                                <div class="guide-section__body">
+                                    <p>User message is saved first so compaction can see the latest turn. <code>maybeCompact</code> may hide old messages and append a <code>COMPACTED HISTORY</code> system line — then the loop runs on the slimmer history.</p>
+                                </div>
+                            </details>
+                            <details class="guide-section" data-start="22" data-end="24">
+                                <summary><span class="guide-section__lines">for loop</span><span class="guide-section__title">Leave agent.chat alone</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Do <strong>not</strong> add another <code>maybeCompact</code> call next to <code>agent.chat()</code>. You already have:</p>
+                                    <pre class="language-typescript mt-2"><code>const response = await agent.chat(
+  toApiMessages(session.getHistory()),
+  toolSchemas,
+);</code></pre>
+                                    <p class="mt-2">Phase 5’s <code>toApiMessages</code> skips <code>hidden: true</code> messages. Compaction sets <code>hidden</code> on old rows — so every <code>agent.chat()</code> in the loop automatically sends less text without any extra code in Step 4.</p>
+                                    <div class="guide-why"><strong>Why once per turn is enough for 101:</strong> Long turns grow history inside the loop (tool results). A fancier harness might compact mid-turn; you can add that later if logs show <code>totalTokens</code> spiking on a single turn.</div>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <div class="my-6 p-5 bg-emerald-50 border border-emerald-200 rounded-2xl text-sm">
+                    <strong>Step 4c checklist — you are done when:</strong>
+                    <ul class="mt-2 list-disc pl-5 space-y-1">
+                        <li><code>import { maybeCompact } from './compaction.js';</code> is at the top of <code>loop.ts</code></li>
+                        <li><code>await maybeCompact(session, agent, logger);</code> sits directly after the user <code>addMessage</code></li>
+                        <li>You did <em>not</em> change anything inside the <code>for</code> loop for compaction</li>
+                    </ul>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 5: Lightweight sub-agents (delegate one task)</h3>
+                <p>A <strong>sub-agent</strong> is a separate brain with its own short memory, given one job, then returns an answer to the main agent. OpenCode runs them as child sessions; Hermes caps recursion depth. Your version stays small:</p>
+                <ul class="text-sm list-disc pl-5 space-y-1">
+                    <li>New session ID (child does not pollute parent transcript).</li>
+                    <li>Fixed profile (e.g. <code>reviewer</code> or <code>planner</code>).</li>
+                    <li>One user message, one <code>runTurn</code>, return text.</li>
+                </ul>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">5a — Create <code>src/harness/subagent.ts</code> (new file)</h4>
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/subagent.ts — new file</div>
+                            <pre class="language-typescript"><code>import { Session } from './session.js';
+import { GrokAgent } from './agent.js';
+import { runTurn } from './loop.js';
+import { getProfile, type ProfileId } from './profiles.js';
+import { HarnessLogger } from './logger.js';
+
+export type DelegateResult = {
+  childSessionId: string;
+  profileId: ProfileId;
+  reply: string;
+};
+
+/**
+ * Run one turn in a fresh session — used by the parent agent's delegate tool.
+ */
+export async function runSubagentTurn(
+  task: string,
+  profileId: ProfileId,
+  parentSessionId: string,
+): Promise&lt;DelegateResult&gt; {
+  const profile = getProfile(profileId);
+  const session = new Session();
+  await session.load();
+
+  await session.addMessage('system', profile.systemPrompt);
+  await session.addMessage(
+    'system',
+    `You are a sub-agent spawned by parent session ${parentSessionId}. ` +
+      'Complete only the task below, then stop.',
+    { hidden: true },
+  );
+
+  const agent = new GrokAgent();
+  const logger = new HarnessLogger(session.id);
+
+  const reply = await runTurn(session, agent, task, profile, logger);
+
+  return {
+    childSessionId: session.id,
+    profileId,
+    reply,
+  };
+}</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Explanation for subagent">
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="18" data-end="28" open>
+                                <summary><span class="guide-section__lines">Fresh Session</span><span class="guide-section__title">Isolation</span></summary>
+                                <div class="guide-section__body">
+                                    <p>Parent history stays smaller; you can open <code>sessions/&lt;child-id&gt;.jsonl</code> to debug what the helper did.</p>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">5b — Add a <code>delegate</code> tool — <code>src/harness/tools.ts</code></h4>
+                <p><strong>In the <code>TOOLS</code> array</strong>, add a fourth tool object (after <code>list_files</code>):</p>
+
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">src/harness/tools.ts — add to TOOLS array</div>
+                            <pre class="language-typescript"><code>  {
+    type: 'function' as const,
+    function: {
+      name: 'delegate',
+      description:
+        'Spawn a read-only sub-agent (planner or reviewer profile) for one focused task. ' +
+        'Use for exploration or review without bloating this session. Returns the sub-agent reply.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task: { type: 'string', description: 'Clear instructions for the sub-agent' },
+          profile: {
+            type: 'string',
+            enum: ['planner', 'reviewer'],
+            description: 'Which sub-agent profile to use',
+          },
+        },
+        required: ['task', 'profile'],
+      },
+    },
+  },</code></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <p class="mt-4"><strong>At the top of <code>tools.ts</code></strong> — add:</p>
+                <pre class="language-typescript"><code>import { runSubagentTurn } from './subagent.js';
+import type { ProfileId } from './profiles.js';</code></pre>
+
+                <p class="mt-4"><strong>Change <code>executeTool</code> signature</strong> — we need the parent session id. Replace:</p>
+                <pre class="language-typescript"><code>export async function executeTool(
+  name: string,
+  argsJson: string,
+  allowedTools: string[],
+): Promise&lt;string&gt; {</code></pre>
+                <p>with:</p>
+                <pre class="language-typescript"><code>export async function executeTool(
+  name: string,
+  argsJson: string,
+  allowedTools: string[],
+  parentSessionId: string,
+): Promise&lt;string&gt; {</code></pre>
+
+                <p class="mt-4"><strong>Inside the <code>switch (name)</code></strong>, before <code>default:</code>, add:</p>
+                <pre class="language-typescript"><code>      case 'delegate': {
+        const profile = String(args.profile ?? 'planner') as ProfileId;
+        if (profile !== 'planner' &amp;&amp; profile !== 'reviewer') {
+          return 'delegate profile must be planner or reviewer';
+        }
+        const result = await runSubagentTurn(
+          String(args.task ?? ''),
+          profile,
+          parentSessionId,
+        );
+        return (
+          `Sub-agent (${result.profileId}) session ${result.childSessionId}:\n\n` +
+          result.reply
+        );
+      }</code></pre>
+
+                <p class="mt-4"><strong>In <code>src/harness/profiles.ts</code></strong> — add <code>'delegate'</code> only to the implementer’s <code>allowedTools</code> array:</p>
+                <pre class="language-typescript"><code>allowedTools: ['read_file', 'write_file', 'list_files', 'delegate'],</code></pre>
+
+                <h4 class="font-semibold text-lg mt-6 mb-2">5c — Pass session id from the loop — <code>src/harness/loop.ts</code></h4>
+                <p>Find the <code>executeTool(</code> call inside the tool loop. Add <code>session.id</code> as the fourth argument:</p>
+                <pre class="language-typescript"><code>        const result = await executeTool(
+          fn.name,
+          fn.arguments,
+          profile.allowedTools,
+          session.id,
+        );</code></pre>
+
+                <p class="mt-4">Update <code>src/smoke-tools.ts</code> if it calls <code>executeTool</code> — pass a fake parent id like <code>'smoke-test'</code> as the fourth argument.</p>
+
+                <div class="my-6 p-5 bg-slate-100 border border-slate-200 rounded-2xl text-sm">
+                    <strong>Safety:</strong> Sub-agents use planner/reviewer only — no nested <code>delegate</code> in those profiles, so you avoid infinite “agent calling agent” loops. Production systems add a max depth counter; you can add <code>depth</code> to <code>runSubagentTurn</code> later.
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">Step 6: Verify everything still works</h3>
+                <div class="code-walkthrough">
+                    <div class="code-walkthrough__code">
+                        <div class="code-block">
+                            <div class="code-block__header">Terminal checks</div>
+                            <pre class="language-bash"><code># 1) Tools still run (update smoke if you use it)
+npm run smoke-tools
+
+# 2) Full agent
+npm start
+
+# 3) Diff in tool result — ask implementer to tweak a small file
+# 4) Compaction — after many turns, grep logs
+grep compaction logs/*.jsonl
+
+# 5) Delegate — ask: "Use delegate with planner to list risks in src/harness/loop.ts"</code></pre>
+                        </div>
+                    </div>
+                    <aside class="code-walkthrough__guide" aria-label="Verification">
+                        <div class="guide-sections">
+                            <details class="guide-section" data-start="1" data-end="12" open>
+                                <summary><span class="guide-section__lines">Checks</span><span class="guide-section__title">What good looks like</span></summary>
+                                <div class="guide-section__body">
+                                    <ul>
+                                        <li><code>write_file</code> tool result contains <code>--- diff ---</code></li>
+                                        <li>Long sessions get a <code>COMPACTED HISTORY</code> system message in JSONL</li>
+                                        <li><code>delegate</code> creates a second file under <code>sessions/</code></li>
+                                    </ul>
+                                </div>
+                            </details>
+                        </div>
+                    </aside>
+                </div>
+
+                <h3 class="font-semibold text-2xl mt-10 mb-4">What you are <em>not</em> building (and where to go next)</h3>
+                <p>Finishing 101 does not mean finishing harness engineering. Treat this table as a reading list:</p>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl text-sm overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="border-b"><th class="py-2 pr-4">Topic</th><th class="py-2">What prod harnesses do</th><th class="py-2">Your next step</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">MCP</td><td class="py-2">Plug in databases, browsers, APIs via Model Context Protocol</td><td class="py-2">Read the <a href="https://modelcontextprotocol.io" class="text-blue-600 hover:text-blue-700 underline">Model Context Protocol docs</a>; add one MCP server when you need it</td></tr>
+                            <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">Approval UX</td><td class="py-2">Human clicks “apply” on diffs before write</td><td class="py-2">Split <code>propose_edit</code> / <code>apply_edit</code> tools</td></tr>
+                            <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">Patch engine</td><td class="py-2">Apply unified diffs instead of full-file rewrite</td><td class="py-2">Parse patches from model; validate hunks match disk</td></tr>
+                            <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">Checkpoints</td><td class="py-2">Git snapshot per turn; rollback button</td><td class="py-2">Run <code>git stash</code> / commit before implementer turns</td></tr>
+                            <tr class="border-b border-slate-100"><td class="py-2 pr-4 font-mono">Multi-model</td><td class="py-2">Cheap model compacts; strong model codes</td><td class="py-2">Second env var for compaction model in <code>agent.ts</code></td></tr>
+                            <tr><td class="py-2 pr-4 font-mono">Telemetry</td><td class="py-2">Export <code>logger.event</code> to OpenTelemetry</td><td class="py-2">Same JSON shape you already have — new sink</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="my-6 p-6 bg-white border border-slate-200 rounded-3xl">
+                    <strong>Files touched in Phase 8:</strong>
+                    <ul class="mt-3 space-y-1 text-sm list-disc pl-5 font-mono">
+                        <li>package.json — <span class="font-sans">diff dependency</span></li>
+                        <li>src/main.ts — <span class="font-sans">profile.systemPrompt, quit on empty line</span></li>
+                        <li>src/harness/loop.ts — <span class="font-sans">maybeCompact, session.id to executeTool, optional turn_end cleanup</span></li>
+                        <li>src/harness/session.ts — <span class="font-sans">markHidden, rewriteDisk</span></li>
+                        <li>src/harness/diff.ts — <span class="font-sans">new</span></li>
+                        <li>src/harness/compaction.ts — <span class="font-sans">new</span></li>
+                        <li>src/harness/subagent.ts — <span class="font-sans">new</span></li>
+                        <li>src/harness/tools.ts — <span class="font-sans">diff on write, delegate tool</span></li>
+                        <li>src/harness/profiles.ts — <span class="font-sans">delegate on implementer</span></li>
+                        <li>src/smoke-tools.ts — <span class="font-sans">fourth arg to executeTool</span></li>
+                    </ul>
+                </div>
+
+                <div class="highlight-box p-6 rounded-3xl mt-6">
+                    <strong>Graduation checkpoint:</strong> You built a Grok-powered coding harness from scratch — durable sessions, tools, loop, snapshots, profiles, structured logs, and four advanced patterns (staged workflow, diff preview, compaction, sub-agents). The model is still the brain; <em>you</em> own the body. Extend one knob at a time, watch <code>logs/*.jsonl</code>, and let evidence drive the next change. That is harness engineering.
+                </div>
+            </div>
+
+            <nav class="lesson-nav" aria-label="Lesson navigation">
+                <a href="phase-7.html" class="lesson-nav__link lesson-nav__link--prev">← Observability & Iteration</a>
+                <a href="index.html" class="lesson-nav__link lesson-nav__link--next">Back to Table of Contents →</a>
+            </nav>
+        </div>
+
+        <div class="max-w-2xl mx-auto text-center pt-10 border-t">
+            <h3 class="text-2xl font-semibold tracking-tight mb-3">You Did It</h3>
+            <p class="text-slate-600">All eight phases are in the book. Revisit any page when you add a feature — the sidebars explain the “why” behind each line you typed.</p>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+</body>
+</html>
