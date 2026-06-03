@@ -16,7 +16,7 @@ A living backlog for this harness — what works today, what’s intentionally s
 | Structured harness logs (`logs/*.jsonl`) | Working |
 | Diff preview on `write_file` | Working |
 | Compaction when visible message count is high | Working |
-| Sub-agents (`delegate` + `runSubagentTurn`) | Implemented — worth a dedicated test run |
+| Sub-agents (`delegate` + `runSubagentTurn`) | Working |
 | CLI: profile at startup, empty line quits | Working |
 
 Details on each module: [README.md](./README.md).
