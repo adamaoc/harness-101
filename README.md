@@ -1,5 +1,8 @@
 # Harness 101
 
+<img width="6000" height="2347" alt="harness-101" src="https://github.com/user-attachments/assets/42cf2385-6441-4825-af53-2825f8eed4e8" />
+
+
 A lightweight starting point for an agentic coding harness — plus a step-by-step tutorial that walks through how it was built, line by line, with notes on what each piece does and why.
 
 This isn't only a repo you clone and run. I wrote the tutorial so you can reproduce the same harness yourself, understand how the pieces fit together, and adapt it to your own projects. There’s also a list of possible next steps in `the-harness/FUTURE-PLANS-AND-UPDATES.md` if you want to push the basics toward something more capable and production-ready.
