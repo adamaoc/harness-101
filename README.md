@@ -1,6 +1,8 @@
 # Harness 101
 
-<img width="6000" height="2347" alt="harness-101" src="https://github.com/user-attachments/assets/42cf2385-6441-4825-af53-2825f8eed4e8" />
+<p align="center">
+<img width="800" height="313" alt="harness-101-opti" src="https://github.com/user-attachments/assets/36dc909e-d896-464c-8799-8f7d12f8233f" />
+</p>
 
 
 A lightweight starting point for an agentic coding harness — plus a step-by-step tutorial that walks through how it was built, line by line, with notes on what each piece does and why.
