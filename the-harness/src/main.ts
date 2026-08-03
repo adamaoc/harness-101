@@ -21,6 +21,7 @@ async function main() {
 
   console.log(`Session ${session.id}`);
   console.log(`Profile: ${profile.label}`);
+  console.log(`Model: ${agent.model}`);
   console.log(`Allowed tools: ${profile.allowedTools.join(", ")}`);
   console.log("Empty line to quit\n");
 

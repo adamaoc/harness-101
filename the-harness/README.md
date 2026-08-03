@@ -18,7 +18,28 @@ npm install
 npm start
 ```
 
-You need `XAI_API_KEY` in `.env`. The default model is `grok-4.3` in `src/harness/agent.ts` — change it there if you point the client at another compatible endpoint.
+You need `XAI_API_KEY` in `.env`. The model is **not** pinned to a single Grok version:
+
+| Env var | Default | Purpose |
+| -------- | ------- | ------- |
+| `XAI_API_KEY` | _(required)_ | xAI API key |
+| `XAI_MODEL` | `grok-4.5-latest` | Model id passed to the API. xAI’s `-latest` aliases track the newest release in that family |
+| `XAI_BASE_URL` | `https://api.x.ai/v1` | OpenAI-compatible endpoint (swap this to point at another provider) |
+
+Examples:
+
+```bash
+# Use whatever the default is (currently grok-4.5-latest)
+npm start
+
+# Pin a specific generation
+XAI_MODEL=grok-4.3 npm start
+
+# Another OpenAI-compatible API
+XAI_BASE_URL=https://api.example.com/v1 XAI_MODEL=my-model npm start
+```
+
+At startup the CLI prints the active model so you always know what you are talking to.
 
 At startup you will see the session id, active profile, and allowed tools. Type a prompt at `> `. Press **Enter** on an empty line to quit.
 
@@ -88,7 +109,7 @@ the-harness/
 └── src/
     ├── main.ts              # CLI REPL
     └── harness/
-        ├── agent.ts         # Grok client (OpenAI SDK → api.x.ai)
+        ├── agent.ts         # LLM client (OpenAI SDK → XAI_BASE_URL / XAI_MODEL)
         ├── session.ts       # JSONL session load/save, hidden messages
         ├── loop.ts          # Agent loop, API message shaping, snapshots
         ├── tools.ts         # Tool schemas, execution, permissions
