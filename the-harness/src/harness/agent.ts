@@ -3,21 +3,15 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-/**
- * Default when XAI_MODEL is unset.
- * xAI documents `<name>-latest` as a rolling alias within that model family,
- * so minor updates land without code changes. Override with XAI_MODEL to pin
- * a specific slug (e.g. grok-4.5, grok-4.3) or move to a new generation.
- * See https://docs.x.ai/developers/models
- */
-export const DEFAULT_XAI_MODEL = "grok-4.5-latest";
-
 export class GrokAgent {
   private client: OpenAI;
+  /** Model id sent to the API. Default `"latest"` is xAI's rolling flagship alias. */
   public model: string;
 
   constructor(model?: string) {
-    this.model = model ?? process.env.XAI_MODEL ?? DEFAULT_XAI_MODEL;
+    // Prefer explicit override, then env, else xAI's unversioned "latest" alias.
+    // See request examples at https://docs.x.ai/docs/api-reference
+    this.model = model ?? process.env.XAI_MODEL ?? "latest";
     this.client = new OpenAI({
       apiKey: process.env.XAI_API_KEY,
       baseURL: process.env.XAI_BASE_URL ?? "https://api.x.ai/v1",

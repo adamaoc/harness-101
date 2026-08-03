@@ -40,15 +40,15 @@
                 <p>Grok's API speaks the same shape as OpenAI's chat API. We use the official <code>openai</code> npm package and point it at xAI's URL.</p>
 
                 <h3 class="font-semibold text-2xl mt-8 mb-4">Step 1: Store your API key</h3>
-                <p>Create a <code>.env</code> file at the project root (same level as <code>package.json</code>). Add it to <code>.gitignore</code> so it never gets committed. Optionally set <code>XAI_MODEL</code> to pick a model without editing source.</p>
+                <p>Create a <code>.env</code> file at the project root (same level as <code>package.json</code>). Add it to <code>.gitignore</code> so it never gets committed. Optionally set <code>XAI_MODEL</code> to pin a specific model without editing source.</p>
 
                 <div class="code-walkthrough">
                     <div class="code-walkthrough__code">
                         <div class="code-block">
                             <div class="code-block__header">.env</div>
                             <pre class="language-bash"><code>XAI_API_KEY=your_key_here
-# Optional — defaults to grok-4.5-latest in agent.ts
-# XAI_MODEL=grok-4.5-latest</code></pre>
+# Optional — defaults to "latest" (xAI's unversioned flagship alias)
+# XAI_MODEL=latest</code></pre>
                         </div>
                     </div>
                     <aside class="code-walkthrough__guide" aria-label="Explanation for .env">
@@ -67,7 +67,7 @@
                             <details class="guide-section" data-start="2" data-end="3">
                                 <summary><span class="guide-section__lines">Lines 2–3</span><span class="guide-section__title">Optional XAI_MODEL</span></summary>
                                 <div class="guide-section__body">
-                                    <p>Leave this commented to use the code default (<code>grok-4.5-latest</code>). Uncomment and set any model id when you want to pin or try another generation without editing TypeScript.</p>
+                                    <p>Leave this commented to use xAI’s <code>latest</code> alias (whatever their current flagship is). Uncomment and set a specific id (e.g. <code>grok-4.5</code>) only when you need a fixed version.</p>
                                 </div>
                             </details>
                         </div>
@@ -86,15 +86,14 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-/** Default when XAI_MODEL is unset. xAI's -latest alias tracks the family. */
-export const DEFAULT_XAI_MODEL = 'grok-4.5-latest';
-
 export class GrokAgent {
   private client: OpenAI;
+  /** Model id sent to the API. Default "latest" is xAI's rolling flagship alias. */
   public model: string;
 
   constructor(model?: string) {
-    this.model = model ?? process.env.XAI_MODEL ?? DEFAULT_XAI_MODEL;
+    // constructor arg → XAI_MODEL env → xAI "latest" (no version pin)
+    this.model = model ?? process.env.XAI_MODEL ?? 'latest';
     this.client = new OpenAI({
       apiKey: process.env.XAI_API_KEY,
       baseURL: process.env.XAI_BASE_URL ?? 'https://api.x.ai/v1',
@@ -136,42 +135,35 @@ export class GrokAgent {
                                     <div class="guide-why"><strong>Why at top level:</strong> The key must exist before <code>new OpenAI({ apiKey: ... })</code> runs.</div>
                                 </div>
                             </details>
-                            <details class="guide-section" data-start="6" data-end="7">
-                                <summary><span class="guide-section__lines">Lines 6–7</span><span class="guide-section__title">Default model constant</span></summary>
-                                <div class="guide-section__body">
-                                    <p><code>DEFAULT_XAI_MODEL</code> is the fallback when <code>XAI_MODEL</code> is not set. We use xAI’s <code>-latest</code> alias so the harness tracks the current release of that family without hard-coding every patch version. When a new major generation ships (e.g. 4.6), change this constant — or set <code>XAI_MODEL</code> in <code>.env</code>.</p>
-                                    <div class="guide-why"><strong>Why not hard-code <code>grok-4.3</code>:</strong> Model names age quickly. Env + a rolling default keeps the project version-agnostic.</div>
-                                </div>
-                            </details>
-                            <details class="guide-section" data-start="9" data-end="11">
-                                <summary><span class="guide-section__lines">Lines 9–11</span><span class="guide-section__title">Class shell &amp; model field</span></summary>
+                            <details class="guide-section" data-start="6" data-end="8">
+                                <summary><span class="guide-section__lines">Lines 6–8</span><span class="guide-section__title">Class shell &amp; model field</span></summary>
                                 <div class="guide-section__body">
                                     <p><code>GrokAgent</code> is your harness's name for "the thing that calls the brain." <code>private client</code> hides the SDK instance — outside code calls <code>chat()</code>, not the raw client. <code>model</code> is a public string so startup logs and overrides can read it.</p>
                                 </div>
                             </details>
-                            <details class="guide-section" data-start="13" data-end="19">
-                                <summary><span class="guide-section__lines">Lines 13–19</span><span class="guide-section__title">Configure the client</span></summary>
+                            <details class="guide-section" data-start="10" data-end="16">
+                                <summary><span class="guide-section__lines">Lines 10–16</span><span class="guide-section__title">Configure the client</span></summary>
                                 <div class="guide-section__body">
-                                    <p>Resolution order for the model: constructor arg → <code>XAI_MODEL</code> env → <code>DEFAULT_XAI_MODEL</code>. <code>apiKey</code> comes from the environment, never hard-coded. <code>baseURL</code> defaults to xAI but can be overridden with <code>XAI_BASE_URL</code> for any OpenAI-compatible endpoint.</p>
+                                    <p>Resolution order for the model: constructor arg → <code>XAI_MODEL</code> env → <code>"latest"</code>. That last fallback is xAI’s unversioned flagship alias (shown in their API docs), so you never hard-code <code>grok-4.5</code> or similar. <code>apiKey</code> comes from the environment. <code>baseURL</code> defaults to xAI but can be overridden with <code>XAI_BASE_URL</code>.</p>
                                     <div class="guide-why"><strong>Why a wrapper class:</strong> Later you can swap models, add retries, or log token usage in one place.</div>
                                 </div>
                             </details>
-                            <details class="guide-section" data-start="21" data-end="21">
-                                <summary><span class="guide-section__lines">Line 21</span><span class="guide-section__title">chat() parameters</span></summary>
+                            <details class="guide-section" data-start="18" data-end="18">
+                                <summary><span class="guide-section__lines">Line 18</span><span class="guide-section__title">chat() parameters</span></summary>
                                 <div class="guide-section__body">
                                     <p><code>messages</code> — the conversation history from your <code>Session</code>. <code>tools</code> defaults to <code>[]</code> for plain chat without tool calling (Phase 3 adds tools).</p>
                                 </div>
                             </details>
-                            <details class="guide-section" data-start="22" data-end="27">
-                                <summary><span class="guide-section__lines">Lines 22–27</span><span class="guide-section__title">The API call</span></summary>
+                            <details class="guide-section" data-start="19" data-end="24">
+                                <summary><span class="guide-section__lines">Lines 19–24</span><span class="guide-section__title">The API call</span></summary>
                                 <div class="guide-section__body">
                                     <p><code>model</code> — whatever was resolved at construct time. <code>messages</code> — full history the model sees. <code>temperature: 0.7</code> — some creativity, not totally random.</p>
                                     <p>The spread <code>...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {})</code> only adds <code>tools</code> when you actually have tools. With <code>exactOptionalPropertyTypes</code>, passing <code>tools: undefined</code> would fail — omitting the property entirely is correct.</p>
                                     <p><code>tool_choice: 'auto' as const</code> — tells TypeScript this is the literal string <code>'auto'</code>, not just any string. The model decides whether to call tools or reply in text.</p>
                                 </div>
                             </details>
-                            <details class="guide-section" data-start="28" data-end="29">
-                                <summary><span class="guide-section__lines">Lines 28–29</span><span class="guide-section__title">return response</span></summary>
+                            <details class="guide-section" data-start="25" data-end="26">
+                                <summary><span class="guide-section__lines">Lines 25–26</span><span class="guide-section__title">return response</span></summary>
                                 <div class="guide-section__body">
                                     <p>Returns the full SDK response object. The agent loop (Phase 4) will read <code>response.choices[0].message</code> to see if the model wants to use tools or finished with text.</p>
                                 </div>

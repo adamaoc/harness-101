@@ -18,28 +18,28 @@ npm install
 npm start
 ```
 
-You need `XAI_API_KEY` in `.env`. The model is **not** pinned to a single Grok version:
+You need `XAI_API_KEY` in `.env`. The model is **not** pinned to a Grok version in source:
 
 | Env var | Default | Purpose |
 | -------- | ------- | ------- |
 | `XAI_API_KEY` | _(required)_ | xAI API key |
-| `XAI_MODEL` | `grok-4.5-latest` | Model id passed to the API. xAI’s `-latest` aliases track the newest release in that family |
+| `XAI_MODEL` | `latest` | Model id passed to the API. xAI’s unversioned `latest` alias tracks their current flagship |
 | `XAI_BASE_URL` | `https://api.x.ai/v1` | OpenAI-compatible endpoint (swap this to point at another provider) |
 
 Examples:
 
 ```bash
-# Use whatever the default is (currently grok-4.5-latest)
+# Default: model "latest" (whatever xAI currently serves as flagship)
 npm start
 
 # Pin a specific generation
-XAI_MODEL=grok-4.3 npm start
+XAI_MODEL=grok-4.5 npm start
 
 # Another OpenAI-compatible API
 XAI_BASE_URL=https://api.example.com/v1 XAI_MODEL=my-model npm start
 ```
 
-At startup the CLI prints the active model so you always know what you are talking to.
+At startup the CLI prints the active model id sent to the API.
 
 At startup you will see the session id, active profile, and allowed tools. Type a prompt at `> `. Press **Enter** on an empty line to quit.
 
