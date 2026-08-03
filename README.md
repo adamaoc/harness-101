@@ -31,6 +31,8 @@ You’ll need a Grok (xAI) API key in `the-harness/.env`:
 
 ```bash
 XAI_API_KEY=your_key_here
+# Optional — defaults to "latest" (xAI's rolling flagship alias)
+# XAI_MODEL=latest
 ```
 
 ### Install and run

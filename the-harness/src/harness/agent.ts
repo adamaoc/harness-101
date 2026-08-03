@@ -5,12 +5,16 @@ dotenv.config();
 
 export class GrokAgent {
   private client: OpenAI;
-  public model = "grok-4.3";
+  /** Model id sent to the API. Default `"latest"` is xAI's rolling flagship alias. */
+  public model: string;
 
-  constructor() {
+  constructor(model?: string) {
+    // Prefer explicit override, then env, else xAI's unversioned "latest" alias.
+    // See request examples at https://docs.x.ai/docs/api-reference
+    this.model = model ?? process.env.XAI_MODEL ?? "latest";
     this.client = new OpenAI({
       apiKey: process.env.XAI_API_KEY,
-      baseURL: "https://api.x.ai/v1",
+      baseURL: process.env.XAI_BASE_URL ?? "https://api.x.ai/v1",
     });
   }
 
